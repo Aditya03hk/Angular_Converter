@@ -222,7 +222,142 @@ async function processTextToAngular(jobId, description) {
 
     // Generate Angular code from the design structure
     const angularFiles = await generateAngularCode(designStructure);
-    // Continue with the existing workflow (same as processFigmaToAngular)
+    
+    // Add FormsModule to app.config.ts
+    if (angularFiles['src/app/app.config.ts']) {
+      angularFiles['src/app/app.config.ts'] = `import { ApplicationConfig } from '@angular/core';
+import { provideRouter } from '@angular/router';
+import { provideFormsModule } from '@angular/forms';
+import { routes } from './app.routes';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(routes),
+    provideFormsModule()
+  ]
+};`;
+    }
+
+    // Update editable-form component to import FormsModule
+    if (angularFiles['src/app/shared/editable-form/editable-form.component.ts']) {
+      angularFiles['src/app/shared/editable-form/editable-form.component.ts'] = `import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { CommonModule } from '@angular/common';
+
+@Component({
+  selector: 'app-editable-form',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  template: \`
+    <form (ngSubmit)="onSubmit()">
+      <div class="form-group">
+        <input type="text" [(ngModel)]="data.name" name="name" placeholder="Name">
+      </div>
+      <div class="form-group">
+        <input type="email" [(ngModel)]="data.email" name="email" placeholder="Email">
+      </div>
+      <div class="form-group">
+        <input type="tel" [(ngModel)]="data.phone" name="phone" placeholder="Phone">
+      </div>
+      <button type="submit">Save</button>
+    </form>
+  \`,
+  styles: [\`
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    input {
+      width: 100%;
+      padding: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+  \`]
+})
+export class EditableFormComponent {
+  @Input() data: any = {};
+  @Output() submit = new EventEmitter<any>();
+
+  onSubmit() {
+    this.submit.emit(this.data);
+  }
+}`;
+    }
+
+    // Create UserProfileComponent
+    angularFiles['src/app/user-profile/user-profile.component.ts'] = `import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { EditableFormComponent } from '../shared/editable-form/editable-form.component';
+
+@Component({
+  selector: 'app-user-profile',
+  standalone: true,
+  imports: [CommonModule, EditableFormComponent],
+  template: \`
+    <div class="profile-container">
+      <h1>User Profile</h1>
+      <app-editable-form
+        [data]="userData"
+        (submit)="onFormSubmit($event)">
+      </app-editable-form>
+    </div>
+  \`,
+  styles: [\`
+    .profile-container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    h1 {
+      margin-bottom: 2rem;
+      color: #333;
+    }
+  \`]
+})
+export class UserProfileComponent {
+  userData = {
+    name: '',
+    email: '',
+    phone: ''
+  };
+
+  onFormSubmit(data: any) {
+    console.log('Form submitted:', data);
+    // Handle form submission
+  }
+}`;
+
+    // Update tsconfig.app.json to fix TypeScript warnings
+    angularFiles['tsconfig.app.json'] = JSON.stringify({
+      "extends": "./tsconfig.json",
+      "compilerOptions": {
+        "outDir": "./out-tsc/app",
+        "types": [],
+        "moduleResolution": "node",
+        "target": "ES2022",
+        "useDefineForClassFields": false
+      },
+      "files": [
+        "src/main.ts",
+        "src/polyfills.ts"
+      ],
+      "include": [
+        "src/**/*.d.ts",
+        "src/**/*.ts"
+      ]
+    }, null, 2);
+
+    // Continue with the existing workflow
     await continueAngularConversion(jobId, workDir, angularFiles);
   } catch (error) {
     console.error(`Error processing job ${jobId}:`, error);
@@ -271,134 +406,59 @@ async function generateDesignFromText(description) {
   const prompt = {
     contents: [{
       parts: [{
-        text: `You are an expert Angular developer. Generate a complete Angular application based on this design structure:
+        text: `You are an expert Angular developer. Generate a complete Angular application based on this design description:
 
-${JSON.stringify(designStructure, null, 2)}
+${description}
 
-IMPORTANT: You must generate ALL of the following files with COMPLETE CODE CONTENT. Each file must contain actual, working code, not just placeholders.
+IMPORTANT: First, generate ONLY a design structure in JSON format that describes the components, services, and models needed for this application. The structure should include:
 
-REQUIRED FILES (with complete code content):
+1. Components (with their hierarchy and relationships)
+2. Services (with their responsibilities)
+3. Models (with their properties and types)
+4. Routes (with their paths and components)
 
-1. Configuration Files:
-- tsconfig.json (with complete compiler options)
-- tsconfig.app.json (with complete app configuration)
-- tsconfig.spec.json (with complete test configuration)
-- angular.json (with complete workspace and build configuration)
-- package.json (with all required dependencies and scripts)
-
-2. Source Files:
-- src/main.ts (with complete bootstrap code)
-- src/index.html (with complete HTML structure)
-- src/styles.css (with complete global styles)
-- src/polyfills.ts (with all required polyfills)
-- src/environments/environment.ts (with complete environment configuration)
-- src/environments/environment.prod.ts (with complete production configuration)
-
-3. App Files:
-- src/app/app.component.ts (with complete component code)
-- src/app/app.component.html (with complete template)
-- src/app/app.component.css (with complete styles)
-- src/app/app.routes.ts (with complete routing configuration)
-- src/app/app.config.ts (with complete app configuration)
-
-4. Component Files:
-For each component in the design structure, generate:
-- [component-name].component.ts (with complete component code)
-- [component-name].component.html (with complete template)
-- [component-name].component.css (with complete styles)
-
-5. Service Files:
-For each service in the design structure, generate:
-- [service-name].service.ts (with complete service code)
-
-6. Model Files:
-For each model in the design structure, generate:
-- [model-name].model.ts (with complete model code)
-- [model-name].interface.ts (with complete interface code)
-
-CRITICAL REQUIREMENTS:
-1. Every component MUST be standalone: true
-2. Every component MUST import all its child components
-3. Every component MUST add imported components to its imports array
-4. Every component MUST have proper styleUrls configuration
-5. Every component MUST use proper TypeScript types
-6. Every service MUST be provided in root
-7. Every route MUST have proper path and component configuration
-8. Every model MUST have proper TypeScript interfaces
-9. Every polyfill MUST be properly imported
-10. Every configuration file MUST have complete settings
-
-EXAMPLE FORMAT:
-filepath: src/app/components/example/example.component.ts
----
-import { Component, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
-
-@Component({
-  selector: 'app-example',
-  standalone: true,
-  imports: [CommonModule],
-  template: \`
-    <div class="example">
-      <h1>Example Component</h1>
-      <p>This is a complete example component.</p>
-    </div>
-  \`,
-  styleUrls: ['./example.component.css']
-})
-export class ExampleComponent implements OnInit {
-  constructor() {}
-
-  ngOnInit(): void {
-    // Initialize component
-  }
-}
----
-
-filepath: src/app/components/example/example.component.html
----
-<div class="example">
-  <h1>Example Component</h1>
-  <p>This is a complete example component.</p>
-</div>
----
-
-filepath: src/app/components/example/example.component.css
----
-.example {
-  display: block;
-  width: 100%;
-  padding: 20px;
+The design structure should be in this format:
+{
+  "components": {
+    "shared": {
+      "header": {
+        "description": "Main navigation header",
+        "properties": ["title", "navItems"],
+        "childComponents": []
+      }
+    },
+    "features": {
+      "homepage": {
+        "description": "Main landing page",
+        "properties": [],
+        "childComponents": ["header"]
+      }
+    }
+  },
+  "services": {
+    "data": {
+      "description": "Handles data operations",
+      "methods": ["getData", "saveData"]
+    }
+  },
+  "models": {
+    "user": {
+      "properties": {
+        "id": "string",
+        "name": "string",
+        "email": "string"
+      }
+    }
+  },
+  "routes": [
+    {
+      "path": "",
+      "component": "HomepageComponent"
+    }
+  ]
 }
 
-.example h1 {
-  color: #333;
-  font-size: 24px;
-}
-
-.example p {
-  color: #666;
-  font-size: 16px;
-}
----
-
-IMPORTANT:
-- Generate COMPLETE, WORKING code for each file
-- Do not use placeholders or TODO comments
-- Include all necessary imports
-- Include all required decorators and configurations
-- Include proper TypeScript types
-- Include proper error handling
-- Include proper documentation
-- Follow Angular best practices
-- Ensure all components are properly connected
-- Ensure all services are properly implemented
-- Ensure all models are properly defined
-- Ensure all routes are properly configured
-
-At the end of your response, provide a summary of all generated files with their paths.
-
-${memoryGuidelines}`
+IMPORTANT: Return ONLY the JSON structure, no additional code or explanations.`
       }]
     }],
     generationConfig: {
@@ -425,47 +485,60 @@ ${memoryGuidelines}`
     const result = await response.json();
     const designText = result.candidates[0].content.parts[0].text;
     
-    // Clean and parse the JSON response
-    try {
-      // First, try to extract JSON from the response
-      const jsonMatch = designText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error("No JSON object found in the response");
-      }
-      
-      // Clean the JSON string
-      let cleanedJson = jsonMatch[0]
-        .replace(/```json\n?|\n?```/g, "") // Remove code blocks
-        .replace(/```typescript\n?|\n?```/g, "") // Remove TypeScript blocks
-        .replace(/```javascript\n?|\n?```/g, "") // Remove JavaScript blocks
-        .replace(/```\n?|\n?```/g, "") // Remove any remaining code blocks
-        .replace(/(\w+):/g, '"$1":') // Add quotes to property names
-        .replace(/'/g, '"') // Replace single quotes with double quotes
-        .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
-        .trim();
-
-      // Additional cleaning for common JSON issues
-      cleanedJson = cleanedJson
-        .replace(/\n\s*\/\/.*/g, '') // Remove single-line comments
-        .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
-        .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3') // Ensure property names are quoted
-        .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3') // Double pass to catch nested objects
-        .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3'); // Triple pass for deeply nested objects
-
-      // Parse the cleaned JSON
-      const designStructure = JSON.parse(cleanedJson);
-      
-      // Validate the structure
-      if (!designStructure.components || !designStructure.components.shared) {
-        throw new Error("Invalid design structure: missing components");
-      }
-
-      return designStructure;
-    } catch (parseError) {
-      console.error("JSON parsing error:", parseError);
-      console.error("Raw response:", designText);
-      throw new Error("Failed to parse design structure: " + parseError.message);
+    // Extract the JSON object from the response
+    const jsonMatch = designText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("No JSON object found in the response");
     }
+    
+    // Clean the JSON string
+    let cleanedJson = jsonMatch[0]
+      .replace(/```json\n?|\n?```/g, "") // Remove code blocks
+      .replace(/```typescript\n?|\n?```/g, "") // Remove TypeScript blocks
+      .replace(/```javascript\n?|\n?```/g, "") // Remove JavaScript blocks
+      .replace(/```\n?|\n?```/g, "") // Remove any remaining code blocks
+      .replace(/(\w+):/g, '"$1":') // Add quotes to property names
+      .replace(/'/g, '"') // Replace single quotes with double quotes
+      .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+      .replace(/,(\s*})/g, '}') // Remove trailing commas before closing braces
+      .replace(/,(\s*\])/g, ']') // Remove trailing commas before closing brackets
+      .replace(/\n\s*\/\/.*/g, '') // Remove single-line comments
+      .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
+      .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3') // Ensure property names are quoted
+      .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3') // Double pass to catch nested objects
+      .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3') // Triple pass for deeply nested objects
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
+
+    // Additional cleaning for common JSON issues
+    cleanedJson = cleanedJson
+      .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3') // Ensure property names are quoted
+      .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3') // Double pass to catch nested objects
+      .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3'); // Triple pass for deeply nested objects
+
+    // Fix any remaining trailing commas
+    cleanedJson = cleanedJson
+      .replace(/,(\s*})/g, '}') // Remove trailing commas before closing braces
+      .replace(/,(\s*\])/g, ']') // Remove trailing commas before closing brackets
+      .replace(/,(\s*$)/g, ''); // Remove trailing commas at the end
+
+    // Ensure the JSON is properly closed
+    if (!cleanedJson.endsWith('}')) {
+      cleanedJson += '}';
+    }
+
+    // Log the cleaned JSON for debugging
+    console.log("Cleaned JSON:", cleanedJson);
+
+    // Parse the cleaned JSON
+    const designStructure = JSON.parse(cleanedJson);
+    
+    // Validate the structure
+    if (!designStructure.components || !designStructure.components.shared) {
+      throw new Error("Invalid design structure: missing components");
+    }
+
+    return designStructure;
   } catch (error) {
     console.error("Failed to generate design from text:", error);
     throw error;
@@ -702,6 +775,7 @@ async function processFigmaToAngular(jobId, figmaKey) {
       "Project files generated successfully",
       {
         downloadUrl: `/api/download/${jobId}`,
+        projectPath: workDir
       }
     );
 
@@ -746,6 +820,144 @@ async function fetchFigmaData(figmaKey) {
   }
 }
 
+async function fixConfigurationFiles(files) {
+  // Fix tsconfig.app.json
+  files['tsconfig.app.json'] = JSON.stringify({
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+      "outDir": "./out-tsc/app",
+      "types": [],
+      "moduleResolution": "node"
+    },
+    "files": [
+      "src/main.ts",
+      "src/polyfills.ts"
+    ],
+    "include": [
+      "src/**/*.d.ts",
+      "src/**/*.ts"
+    ]
+  }, null, 2);
+
+  // Fix styles.css
+  files['src/styles.css'] = `/* You can add global styles to this file, and also import other style files */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+html, body { height: 100%; }
+body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }`;
+
+  // Fix polyfills.ts
+  files['src/polyfills.ts'] = `/**
+ * This file includes polyfills needed by Angular and is loaded before the app.
+ * You can add your own extra polyfills to this file.
+ */
+
+import 'zone.js';  // Included with Angular CLI.`;
+
+  // Fix angular.json with correct configuration
+  files['angular.json'] = JSON.stringify({
+    "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+    "version": 1,
+    "newProjectRoot": "projects",
+    "projects": {
+      "angular-app": {
+        "projectType": "application",
+        "schematics": {
+          "@schematics/angular:component": {
+            "style": "css",
+            "standalone": true
+          }
+        },
+        "root": "",
+        "sourceRoot": "src",
+        "prefix": "app",
+        "architect": {
+          "build": {
+            "builder": "@angular-devkit/build-angular:application",
+            "options": {
+              "outputPath": "dist/angular-app",
+              "index": "src/index.html",
+              "browser": "src/main.ts",
+              "polyfills": ["src/polyfills.ts"],
+              "tsConfig": "tsconfig.app.json",
+              "inlineStyleLanguage": "css",
+              "assets": [
+                "src/favicon.ico",
+                "src/assets"
+              ],
+              "styles": [
+                "src/styles.css"
+              ],
+              "scripts": []
+            },
+            "configurations": {
+              "production": {
+                "budgets": [
+                  {
+                    "type": "initial",
+                    "maximumWarning": "500kb",
+                    "maximumError": "1mb"
+                  },
+                  {
+                    "type": "anyComponentStyle",
+                    "maximumWarning": "2kb",
+                    "maximumError": "4kb"
+                  }
+                ],
+                "outputHashing": "all"
+              },
+              "development": {
+                "optimization": false,
+                "extractLicenses": false,
+                "sourceMap": true
+              }
+            },
+            "defaultConfiguration": "production"
+          },
+          "serve": {
+            "builder": "@angular-devkit/build-angular:dev-server",
+            "configurations": {
+              "production": {
+                "browserTarget": "angular-app:build:production"
+              },
+              "development": {
+                "browserTarget": "angular-app:build:development"
+              }
+            },
+            "defaultConfiguration": "development"
+          },
+          "extract-i18n": {
+            "builder": "@angular-devkit/build-angular:extract-i18n",
+            "options": {
+              "buildTarget": "angular-app:build"
+            }
+          },
+          "test": {
+            "builder": "@angular-devkit/build-angular:karma",
+            "options": {
+              "polyfills": ["src/polyfills.ts"],
+              "tsConfig": "tsconfig.spec.json",
+              "inlineStyleLanguage": "css",
+              "assets": [
+                "src/favicon.ico",
+                "src/assets"
+              ],
+              "styles": [
+                "src/styles.css"
+              ],
+              "scripts": []
+            }
+          }
+        }
+      }
+    }
+  }, null, 2);
+
+  return files;
+}
+
 async function generateAngularCode(designStructure) {
   try {
     // Validate design structure
@@ -775,19 +987,132 @@ REQUIRED FILES (with complete code content):
 - package.json (with all required dependencies and scripts)
 
 2. Source Files:
-- src/main.ts (with complete bootstrap code)
-- src/index.html (with complete HTML structure)
-- src/styles.css (with complete global styles)
-- src/polyfills.ts (with all required polyfills)
-- src/environments/environment.ts (with complete environment configuration)
-- src/environments/environment.prod.ts (with complete production configuration)
+- src/main.ts MUST have this exact content:
+---
+import { bootstrapApplication } from '@angular/platform-browser';
+import { appConfig } from './app/app.config';
+import { AppComponent } from './app/app.component';
+
+bootstrapApplication(AppComponent, appConfig)
+  .catch((err) => console.error(err));
+---
+
+- src/index.html MUST have this exact content:
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Angular App</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+<body>
+  <app-root></app-root>
+</body>
+</html>
+---
+
+- src/styles.css MUST have this exact content:
+---
+/* You can add global styles to this file, and also import other style files */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+html, body { height: 100%; }
+body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
+---
+
+- src/polyfills.ts MUST have this exact content:
+---
+/**
+ * This file includes polyfills needed by Angular and is loaded before the app.
+ * You can add your own extra polyfills to this file.
+ */
+
+import 'zone.js';  // Included with Angular CLI.
+---
+
+- src/environments/environment.ts MUST have this exact content:
+---
+export const environment = {
+  production: false
+};
+---
+
+- src/environments/environment.prod.ts MUST have this exact content:
+---
+export const environment = {
+  production: true
+};
+---
 
 3. App Files:
-- src/app/app.component.ts (with complete component code)
-- src/app/app.component.html (with complete template)
-- src/app/app.component.css (with complete styles)
-- src/app/app.routes.ts (with complete routing configuration)
-- src/app/app.config.ts (with complete app configuration)
+- src/app/app.component.ts MUST have this exact content:
+---
+import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterOutlet } from '@angular/router';
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, RouterOutlet],
+  template: \`
+    <main>
+      <router-outlet></router-outlet>
+    </main>
+  \`,
+  styles: [\`
+    main {
+      padding: 20px;
+    }
+  \`]
+})
+export class AppComponent {
+  title = 'angular-app';
+}
+---
+
+- src/app/app.component.html MUST have this exact content:
+---
+<main>
+  <router-outlet></router-outlet>
+</main>
+---
+
+- src/app/app.component.css MUST have this exact content:
+---
+main {
+  padding: 20px;
+}
+---
+
+- src/app/app.routes.ts MUST have this exact content:
+---
+import { Routes } from '@angular/router';
+import { HomepageComponent } from './homepage/homepage.component';
+
+export const routes: Routes = [
+  { path: '', component: HomepageComponent },
+  { path: '**', redirectTo: '' }
+];
+---
+
+- src/app/app.config.ts MUST have this exact content:
+---
+import { ApplicationConfig } from '@angular/core';
+import { provideRouter } from '@angular/router';
+import { routes } from './app.routes';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(routes)
+  ]
+};
+---
 
 4. Component Files:
 For each component in the design structure, generate:
@@ -821,26 +1146,6 @@ FORMAT YOUR RESPONSE EXACTLY LIKE THIS FOR EACH FILE:
 filepath: [exact file path]
 ---
 [complete file content]
----
-
-For example:
-filepath: src/app/app.component.ts
----
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
-
-@Component({
-  selector: 'app-root',
-  standalone: true,
-  imports: [CommonModule],
-  template: \`
-    <div>Hello World</div>
-  \`,
-  styleUrls: ['./app.component.css']
-})
-export class AppComponent {
-  title = 'my-app';
-}
 ---
 
 IMPORTANT:
@@ -909,7 +1214,7 @@ ${memoryGuidelines}`
         console.log("First 500 characters of response:", generatedCode.substring(0, 500));
 
         // Parse the generated code into files
-        const files = {};
+        let files = {};
         const filePattern = /filepath:\s*([^\n]+)\n---\n([\s\S]*?)(?=\n---|$)/g;
         let match;
         let fileCount = 0;
@@ -923,34 +1228,8 @@ ${memoryGuidelines}`
           }
         }
 
-        // If no files were found with the standard pattern, try parsing code blocks
-        if (Object.keys(files).length === 0) {
-          const codeBlockPattern = /```(?:json|typescript|html|css)\n([\s\S]*?)```/g;
-          const filePathPattern = /filepath:\s*([^\n]+)/g;
-          let filePaths = [];
-          let filePathMatch;
-          
-          // First collect all file paths
-          while ((filePathMatch = filePathPattern.exec(generatedCode)) !== null) {
-            filePaths.push(filePathMatch[1].trim());
-          }
-          
-          // Then collect all code blocks
-          let codeBlocks = [];
-          let codeBlockMatch;
-          while ((codeBlockMatch = codeBlockPattern.exec(generatedCode)) !== null) {
-            codeBlocks.push(codeBlockMatch[1].trim());
-          }
-          
-          // Match file paths with code blocks
-          if (filePaths.length === codeBlocks.length) {
-            for (let i = 0; i < filePaths.length; i++) {
-              files[filePaths[i]] = codeBlocks[i];
-              fileCount++;
-              console.log(`Parsed file ${fileCount}: ${filePaths[i]}`);
-            }
-          }
-        }
+        // After parsing files and before validation
+        files = await fixConfigurationFiles(files);
 
         // Validate the generated files
         if (Object.keys(files).length === 0) {
@@ -996,13 +1275,6 @@ ${memoryGuidelines}`
           }
           console.log(`Verified file content for: ${file}`);
         }
-
-        // Create all required directories before returning files
-        const directories = new Set();
-        Object.keys(files).forEach(filepath => {
-          const dir = path.dirname(filepath);
-          directories.add(dir);
-        });
 
         return files;
       } catch (error) {
@@ -1170,7 +1442,11 @@ async function buildAndServeAngular(jobId, workDir) {
     // Step 1: Install dependencies with detailed logging
     console.log(`Installing dependencies for job ${jobId}...`);
     try {
-      const installResult = await runCommand("npm", ["install"], { 
+      // First, ensure we're in the correct directory
+      process.chdir(workDir);
+      
+      // Install dependencies with force flag to ensure clean install
+      const installResult = await runCommand("npm", ["install", "--force"], { 
         cwd: workDir,
         env: { ...process.env, FORCE_COLOR: true }
       });
@@ -1191,8 +1467,8 @@ async function buildAndServeAngular(jobId, workDir) {
       // First, verify Angular CLI is installed
       await runCommand("npx", ["ng", "version"], { cwd: workDir });
       
-      // Then run the build
-      const buildResult = await runCommand("npx", ["ng", "build", "--configuration=development"], {
+      // Then run the build with production configuration
+      const buildResult = await runCommand("npx", ["ng", "build", "--configuration=production"], {
         cwd: workDir,
         env: { ...process.env, FORCE_COLOR: true }
       });

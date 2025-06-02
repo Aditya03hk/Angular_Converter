@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - app_downloads:/usr/src/app/downloads
+      - app_workspaces:/usr/src/app/workspaces
+      - app_previews:/usr/src/app/previews
+      - app_uploads:/usr/src/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  app_downloads:
+  app_workspaces:
+  app_previews:
+  app_uploads:

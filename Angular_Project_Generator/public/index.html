@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design to Angular Converter</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <h1>Design to Angular Converter</h1>
+        <div class="tab-container">
+            <button class="tab active" data-tab="figma">Figma File</button>
+            <button class="tab" data-tab="text">Text Description</button>
+            <button class="tab" data-tab="voice">Voice Command</button>
+        </div>
+        <div class="input-section">
+            <!-- Figma Input -->
+            <div id="figma-input" class="tab-content active">
+                <div class="input-group">
+                    <label for="figma-key">Figma File Key</label>
+                    <input type="text" id="figma-key" placeholder="Enter your Figma file key">
+                </div>
+                <button class="submit-button" onclick="convertFromFigma()">Convert Figma to Angular</button>
+            </div>
+            <!-- Text Input -->
+            <div id="text-input" class="tab-content" style="display: none;">
+                <div class="input-group">
+                    <label for="design-description">Describe Your Design</label>
+                    <textarea id="design-description" placeholder="Describe what you want to build."></textarea>
+                </div>
+                <button class="submit-button" onclick="convertFromText()">Generate Angular Code</button>
+            </div>
+            <!-- Voice Input -->
+            <div id="voice-input" class="tab-content" style="display: none;">
+                <div class="input-group">
+                    <label>Voice Command</label>
+                    <div class="voice-controls">
+                        <button class="voice-button record" onclick="startRecording()">🎤 Start Recording</button>
+                        <button class="voice-button stop" onclick="stopRecording()" style="display: none;">⏹️ Stop
+                            Recording</button>
+                        <span class="voice-status">Ready to record</span>
+                    </div>
+                    <!-- Textarea to display the transcribed voice command -->
+                    <textarea id="voice-transcript" readonly placeholder="Express your Design"></textarea>
+                </div>
+                <button class="submit-button" id="voice-convert-button" onclick="convertFromVoice()" disabled>Convert to
+                    Angular</button>
+                <!-- Feedback Section -->
+                <div id="voice-feedback" class="feedback-section" style="display: none;">
+                    <p id="voice-status-message">Processing your voice command...</p>
+                    <div id="voice-progress" class="progress-bar">
+                        <div class="progress-bar-fill" style="width: 0%;"></div>
+                    </div>
+                    <div id="voice-result" class="result-section" style="display: none;">
+                        <h2>Conversion Complete!</h2>
+                        <p>Your Angular project has been generated successfully.</p>
+                        <div class="result-links">
+                            <a id="voice-preview-link" href="#" target="_blank">View Preview</a>
+                            <a id="voice-download-link" href="#">Download Project</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Status Message -->
+        <div id="status-message" class="status-message" style="display: none;"></div>
+        <!-- Progress Bar -->
+        <div id="progress" class="progress-bar" style="display: none;">
+            <div class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <!-- Result Section -->
+        <div id="result" class="result-section">
+            <h2>Conversion Complete!</h2>
+            <p>Your Angular project has been generated successfully.</p>
+            <div class="result-links">
+                <a id="preview-link" href="#" target="_blank">View Preview</a>
+                <a id="download-link" href="#">Download Project</a>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>

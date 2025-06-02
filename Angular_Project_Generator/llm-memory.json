@@ -1,0 +1,77 @@
+{
+  "successes": [
+    {
+      "pattern": "/@Component\\(\\{\\s*[^}]*standalone:\\s*true/",
+      "description": "Properly configured standalone component",
+      "example": "@Component({ selector: 'app-root', standalone: true, imports: [CommonModule] })",
+      "count": 83,
+      "added": "2025-04-18T03:41:39.059Z",
+      "lastSeen": "2025-06-01T08:40:26.865Z"
+    },
+    {
+      "pattern": "/bootstrapApplication\\(\\s*AppComponent\\s*,/",
+      "description": "Proper bootstrapping of standalone Angular component",
+      "example": "bootstrapApplication(AppComponent, { providers: [] })",
+      "count": 85,
+      "added": "2025-04-18T03:41:39.063Z",
+      "lastSeen": "2025-06-01T08:40:26.867Z"
+    },
+    {
+      "pattern": "/\\(click\\)\\s*=\\s*\"[^\"]+\\(\\)\"/",
+      "description": "Proper Angular event binding syntax",
+      "example": "<button (click)=\"onButtonClick()\">Click Me</button>",
+      "count": 68,
+      "added": "2025-04-18T03:41:39.067Z",
+      "lastSeen": "2025-05-14T09:13:41.842Z"
+    },
+    {
+      "pattern": "build-success",
+      "description": "Angular project built successfully without errors",
+      "example": "Build completed with proper component structure and dependencies",
+      "count": 48,
+      "added": "2025-04-18T03:45:07.889Z",
+      "lastSeen": "2025-05-13T12:24:06.312Z"
+    }
+  ],
+  "errors": [
+    {
+      "pattern": "/rgba?\\(\\s*([0-9]*\\.?[0-9]+)\\s*,\\s*([0-9]*\\.?[0-9]+)\\s*,\\s*([0-9]*\\.?[0-9]+)/g",
+      "description": "Color values between 0-1 not multiplied by 255 for RGB",
+      "correction": "Multiply RGB values by 255 when converting from Figma format",
+      "count": 36,
+      "added": "2025-04-18T03:41:39.054Z",
+      "lastSeen": "2025-05-14T09:13:41.838Z"
+    },
+    {
+      "pattern": "build-warning",
+      "description": "Angular build warning: Warning: C:/Users/HARSHITH/Agentic_Test/workspaces/ff30a0ef-ad85-4e0d-b405-48b9daa93d09/src/app/app.component.css exceeded maximum budget. Budget 2.00 kB was not met by 8 bytes with a total of 2.01 kB.",
+      "correction": "Ensure code follows Angular best practices to avoid build warnings",
+      "count": 4,
+      "added": "2025-04-18T04:06:54.892Z",
+      "lastSeen": "2025-04-20T10:23:05.723Z"
+    },
+    {
+      "pattern": "build-failure",
+      "description": "Angular build error: Command failed with exit code 1\nstderr: - Generating browser application bundles (phase: setup)...\n✔ Browser application bundle generation complete.\n✔ Browser application bundle generation complete.\n\n",
+      "correction": "Define properties before using them or check property names for typos",
+      "count": 7,
+      "added": "2025-04-20T09:27:56.843Z",
+      "lastSeen": "2025-06-02T04:43:26.449Z"
+    },
+    {
+      "pattern": "/@Component\\s*\\(\\s*{[^}]*}\\s*\\)/",
+      "description": "Missing styleUrls in @Component decorator",
+      "correction": "Add styleUrls: ['./app.component.css'] to the @Component decorator",
+      "count": 2,
+      "added": "2025-06-01T07:10:01.441Z",
+      "lastSeen": "2025-06-01T07:11:48.014Z"
+    }
+  ],
+  "rules": [
+    "Always include standalone: true in the @Component decorator",
+    "Import CommonModule from '@angular/common' for standalone components",
+    "Convert Figma colors from 0-1 range to rgb/rgba by multiplying by 255",
+    "Ensure all CSS classes used in HTML have corresponding definitions",
+    "Use proper StyleUrls in the @Component decorator"
+  ]
+}

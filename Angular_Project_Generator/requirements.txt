@@ -1,0 +1,6 @@
+# install python >=3
+# pip3 install whisper
+# pip3 install boto3
+# pip3 install node
+# pip install npm
+# npm start

@@ -980,23 +980,124 @@ IMPORTANT: You must generate ALL of the following files with COMPLETE CODE CONTE
 REQUIRED FILES (with complete code content):
 
 1. Configuration Files:
-- tsconfig.json (with complete compiler options)
-- tsconfig.app.json (with complete app configuration)
-- tsconfig.spec.json (with complete test configuration)
-- angular.json (with complete workspace and build configuration)
-- package.json (with all required dependencies and scripts)
+- tsconfig.json MUST have this exact content:
+---
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "baseUrl": "./",
+    "outDir": "./dist/out-tsc",
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "sourceMap": true,
+    "declaration": false,
+    "downlevelIteration": true,
+    "experimentalDecorators": true,
+    "moduleResolution": "node",
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "useDefineForClassFields": false,
+    "lib": [
+      "ES2022",
+      "dom"
+    ]
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  }
+}
+---
+
+- tsconfig.app.json MUST have this exact content:
+---
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/app",
+    "types": [],
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "useDefineForClassFields": false
+  },
+  "files": [
+    "src/main.ts",
+    "src/polyfills.ts"
+  ],
+  "include": [
+    "src/**/*.d.ts",
+    "src/**/*.ts"
+  ]
+}
+---
+
+- tsconfig.spec.json MUST have this exact content:
+---
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/spec",
+    "types": [
+      "jasmine"
+    ]
+  },
+  "include": [
+    "src/**/*.spec.ts",
+    "src/**/*.d.ts"
+  ]
+}
+---
+
+- package.json MUST have this exact content:
+---
+{
+  "name": "angular-app",
+  "version": "0.0.0",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/animations": "^17.0.0",
+    "@angular/common": "^17.0.0",
+    "@angular/compiler": "^17.0.0",
+    "@angular/core": "^17.0.0",
+    "@angular/forms": "^17.0.0",
+    "@angular/platform-browser": "^17.0.0",
+    "@angular/platform-browser-dynamic": "^17.0.0",
+    "@angular/router": "^17.0.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "zone.js": "~0.14.2"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^17.0.0",
+    "@angular/cli": "^17.0.0",
+    "@angular/compiler-cli": "^17.0.0",
+    "@types/jasmine": "~5.1.0",
+    "jasmine-core": "~5.1.0",
+    "karma": "~6.4.0",
+    "karma-chrome-launcher": "~3.2.0",
+    "karma-coverage": "~2.2.0",
+    "karma-jasmine": "~5.1.0",
+    "karma-jasmine-html-reporter": "~2.1.0",
+    "typescript": "~5.2.2"
+  }
+}
+---
 
 2. Source Files:
-- src/main.ts MUST have this exact content:
----
-import { bootstrapApplication } from '@angular/platform-browser';
-import { appConfig } from './app/app.config';
-import { AppComponent } from './app/app.component';
-
-bootstrapApplication(AppComponent, appConfig)
-  .catch((err) => console.error(err));
----
-
 - src/index.html MUST have this exact content:
 ---
 <!doctype html>
@@ -1014,15 +1115,14 @@ bootstrapApplication(AppComponent, appConfig)
 </html>
 ---
 
-- src/styles.css MUST have this exact content:
+- src/main.ts MUST have this exact content:
 ---
-/* You can add global styles to this file, and also import other style files */
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+import { bootstrapApplication } from '@angular/platform-browser';
+import { appConfig } from './app/app.config';
+import { AppComponent } from './app/app.component';
 
-html, body { height: 100%; }
-body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
+bootstrapApplication(AppComponent, appConfig)
+  .catch((err) => console.error(err));
 ---
 
 - src/polyfills.ts MUST have this exact content:
@@ -1050,46 +1150,6 @@ export const environment = {
 ---
 
 3. App Files:
-- src/app/app.component.ts MUST have this exact content:
----
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { RouterOutlet } from '@angular/router';
-
-@Component({
-  selector: 'app-root',
-  standalone: true,
-  imports: [CommonModule, RouterOutlet],
-  template: \`
-    <main>
-      <router-outlet></router-outlet>
-    </main>
-  \`,
-  styles: [\`
-    main {
-      padding: 20px;
-    }
-  \`]
-})
-export class AppComponent {
-  title = 'angular-app';
-}
----
-
-- src/app/app.component.html MUST have this exact content:
----
-<main>
-  <router-outlet></router-outlet>
-</main>
----
-
-- src/app/app.component.css MUST have this exact content:
----
-main {
-  padding: 20px;
-}
----
-
 - src/app/app.routes.ts MUST have this exact content:
 ---
 import { Routes } from '@angular/router';
@@ -1114,24 +1174,74 @@ export const appConfig: ApplicationConfig = {
 };
 ---
 
+- src/app/app.component.ts MUST have this exact content:
+---
+import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterOutlet } from '@angular/router';
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, RouterOutlet],
+  templateUrl: './app.component.html',
+  styleUrls: ['./app.component.css']
+})
+export class AppComponent {
+  title = 'angular-app';
+}
+---
+
+- src/app/app.component.html MUST have this exact content:
+---
+<main>
+  <router-outlet></router-outlet>
+</main>
+---
+
+- src/app/app.component.css MUST have this exact content:
+---
+main {
+  padding: 20px;
+}
+---
+
 4. Component Files:
 For each component in the design structure, generate:
-- [component-name].component.ts (with complete component code)
-- [component-name].component.html (with complete template)
-- [component-name].component.css (with complete styles)
+- [component-name].component.ts MUST follow this exact pattern:
+---
+import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+// Import other required modules and components here
 
-5. Service Files:
-For each service in the design structure, generate:
-- [service-name].service.ts (with complete service code)
+@Component({
+  selector: 'app-[component-name]',
+  standalone: true,
+  imports: [CommonModule], // Add other required imports here
+  templateUrl: './[component-name].component.html',
+  styleUrls: ['./[component-name].component.css']
+})
+export class [ComponentName]Component {
+  // Component logic here
+}
+---
 
-6. Model Files:
-For each model in the design structure, generate:
-- [model-name].model.ts (with complete model code)
-- [model-name].interface.ts (with complete interface code)
+IMPORTANT COMPONENT REQUIREMENTS:
+1. Every component MUST be standalone: true
+2. Every component MUST import CommonModule from '@angular/common'
+3. Every component MUST import all its child components
+4. Every component MUST have an imports array with at least:
+   - CommonModule
+   - All child components
+   - Any other required modules (FormsModule, RouterModule, etc.)
+5. Every component MUST have proper styleUrls configuration
+6. Every component MUST use proper TypeScript types
+7. Every component MUST have proper error handling
+8. Every component MUST follow Angular best practices
 
 CRITICAL REQUIREMENTS:
 1. Every component MUST be standalone: true
-2. Every component MUST import all its child components
+2. Every component MUST import CommonModule from '@angular/common'
 3. Every component MUST add imported components to its imports array
 4. Every component MUST have proper styleUrls configuration
 5. Every component MUST use proper TypeScript types
@@ -1231,6 +1341,21 @@ ${memoryGuidelines}`
         // After parsing files and before validation
         files = await fixConfigurationFiles(files);
 
+        // Add missing app component files if they don't exist
+        if (!files['src/app/app.component.html']) {
+          files['src/app/app.component.html'] = `<main>
+  <router-outlet></router-outlet>
+</main>`;
+          console.log('Added missing app.component.html');
+        }
+
+        if (!files['src/app/app.component.css']) {
+          files['src/app/app.component.css'] = `main {
+  padding: 20px;
+}`;
+          console.log('Added missing app.component.css');
+        }
+
         // Validate the generated files
         if (Object.keys(files).length === 0) {
           console.error("No files were parsed from the API response");
@@ -1274,6 +1399,30 @@ ${memoryGuidelines}`
             throw new Error(`File ${file} is empty`);
           }
           console.log(`Verified file content for: ${file}`);
+        }
+
+        // Validate component structure
+        for (const [filepath, content] of Object.entries(files)) {
+          if (filepath.endsWith('.component.ts')) {
+            // Check for required component properties
+            if (!content.includes('@Component')) {
+              throw new Error(`Component ${filepath} is missing @Component decorator`);
+            }
+            if (!content.includes('standalone: true')) {
+              throw new Error(`Component ${filepath} is not marked as standalone`);
+            }
+            if (!content.includes('imports: [')) {
+              throw new Error(`Component ${filepath} is missing imports array`);
+            }
+            if (!content.includes('CommonModule')) {
+              throw new Error(`Component ${filepath} is missing CommonModule import`);
+            }
+            // Check for proper imports array structure
+            const importsMatch = content.match(/imports:\s*\[([\s\S]*?)\]/);
+            if (!importsMatch || !importsMatch[1].includes('CommonModule')) {
+              throw new Error(`Component ${filepath} has invalid imports array structure`);
+            }
+          }
         }
 
         return files;

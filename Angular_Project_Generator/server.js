@@ -357,6 +357,14 @@ export class UserProfileComponent {
       ]
     }, null, 2);
 
+    // Ensure environment files exist
+    if (!angularFiles['src/environments/environment.ts']) {
+      angularFiles['src/environments/environment.ts'] = `export const environment = {\n  production: false\n};\n`;
+    }
+    if (!angularFiles['src/environments/environment.prod.ts']) {
+      angularFiles['src/environments/environment.prod.ts'] = `export const environment = {\n  production: true\n};\n`;
+    }
+
     // Continue with the existing workflow
     await continueAngularConversion(jobId, workDir, angularFiles);
   } catch (error) {
@@ -534,7 +542,7 @@ IMPORTANT: Return ONLY the JSON structure, no additional code or explanations.`
     const designStructure = JSON.parse(cleanedJson);
     
     // Validate the structure
-    if (!designStructure.components || !designStructure.components.shared) {
+    if (!designStructure.components) {
       throw new Error("Invalid design structure: missing components");
     }
 
@@ -839,23 +847,6 @@ async function fixConfigurationFiles(files) {
     ]
   }, null, 2);
 
-  // Fix styles.css
-  files['src/styles.css'] = `/* You can add global styles to this file, and also import other style files */
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
-
-html, body { height: 100%; }
-body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }`;
-
-  // Fix polyfills.ts
-  files['src/polyfills.ts'] = `/**
- * This file includes polyfills needed by Angular and is loaded before the app.
- * You can add your own extra polyfills to this file.
- */
-
-import 'zone.js';  // Included with Angular CLI.`;
-
   // Fix angular.json with correct configuration
   files['angular.json'] = JSON.stringify({
     "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
@@ -954,6 +945,185 @@ import 'zone.js';  // Included with Angular CLI.`;
       }
     }
   }, null, 2);
+
+  // Fix styles.css
+  files['src/styles.css'] = `/* You can add global styles to this file, and also import other style files */
+
+html, body { height: 100%; }
+body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }`;
+
+  // Fix polyfills.ts
+  files['src/polyfills.ts'] = `/**
+ * This file includes polyfills needed by Angular and is loaded before the app.
+ * You can add your own extra polyfills to this file.
+ */
+
+import 'zone.js';  // Included with Angular CLI.`;
+
+  // Ensure environment files exist
+  if (!files['src/environments/environment.ts']) {
+    files['src/environments/environment.ts'] = `export const environment = {\n  production: false\n};\n`;
+  }
+  if (!files['src/environments/environment.prod.ts']) {
+    files['src/environments/environment.prod.ts'] = `export const environment = {\n  production: true\n};\n`;
+  }
+
+  // Fix app.config.ts to include all necessary providers
+  files['src/app/app.config.ts'] = `import { ApplicationConfig } from '@angular/core';
+import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { provideAnimations } from '@angular/platform-browser/animations';
+import { routes } from './app.routes';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(routes),
+    provideHttpClient(),
+    provideAnimations()
+  ]
+};`;
+
+  // Fix app.component.ts to include all necessary imports
+  files['src/app/app.component.ts'] = `import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterOutlet } from '@angular/router';
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, RouterOutlet],
+  templateUrl: './app.component.html',
+  styleUrls: ['./app.component.css']
+})
+export class AppComponent {
+  title = 'angular-app';
+}`;
+
+  // Fix app.component.html
+  files['src/app/app.component.html'] = `<main>
+  <router-outlet></router-outlet>
+</main>`;
+
+  // Fix app.component.css
+  files['src/app/app.component.css'] = `main {
+  padding: 20px;
+}`;
+
+  // Fix app.routes.ts to include all component routes
+  const routes = [];
+  const imports = [];
+  const componentMap = new Map();
+
+  // First pass: collect all components and their paths
+  for (const [filepath, content] of Object.entries(files)) {
+    if (filepath.endsWith('.component.ts')) {
+      const componentName = path.basename(filepath, '.component.ts');
+      const relativePath = path.dirname(filepath).replace('src/app/', '');
+      const importPath = relativePath ? `./${relativePath}/${componentName}.component` : `./${componentName}.component`;
+      componentMap.set(componentName, {
+        name: componentName,
+        path: importPath,
+        routePath: componentName.toLowerCase().replace('-page', '')
+      });
+    }
+  }
+
+  // Second pass: generate imports and routes
+  for (const [_, component] of componentMap) {
+    imports.push(`import { ${component.name} } from '${component.path}';`);
+    routes.push(`{ path: '${component.routePath}', component: ${component.name} }`);
+  }
+
+  // Generate app.routes.ts with proper imports and routes
+  files['src/app/app.routes.ts'] = `import { Routes } from '@angular/router';
+${imports.join('\n')}
+
+export const routes: Routes = [
+  ${routes.join(',\n  ')},
+  { path: '**', redirectTo: '' }
+];`;
+
+  // Fix all component files to include necessary imports
+  for (const [filepath, content] of Object.entries(files)) {
+    if (filepath.endsWith('.component.ts')) {
+      // Remove any duplicate imports
+      const lines = content.split('\n');
+      const uniqueImports = new Set();
+      const otherLines = [];
+      
+      for (const line of lines) {
+        if (line.trim().startsWith('import ')) {
+          uniqueImports.add(line.trim());
+        } else {
+          otherLines.push(line);
+        }
+      }
+
+      // Add required imports
+      const requiredImports = ['import { Component } from \'@angular/core\';', 'import { CommonModule } from \'@angular/common\';'];
+      
+      // Add FormsModule if needed
+      if (content.includes('ngModel') || content.includes('formGroup')) {
+        requiredImports.push('import { FormsModule, ReactiveFormsModule } from \'@angular/forms\';');
+      }
+      
+      // Add RouterModule if needed
+      if (content.includes('routerLink') || content.includes('router-outlet')) {
+        requiredImports.push('import { RouterModule } from \'@angular/router\';');
+      }
+      
+      // Add HttpClientModule if needed
+      if (content.includes('HttpClient')) {
+        requiredImports.push('import { HttpClientModule } from \'@angular/common/http\';');
+      }
+
+      // Combine all imports
+      const allImports = [...requiredImports, ...uniqueImports];
+      
+      // Update the component's imports array
+      const updatedContent = otherLines.join('\n').replace(
+        /@Component\({[\s\S]*?imports:\s*\[([\s\S]*?)\]/,
+        (match, imports) => {
+          const currentImports = imports.split(',').map(i => i.trim());
+          const requiredModules = ['CommonModule'];
+          
+          if (content.includes('ngModel') || content.includes('formGroup')) {
+            requiredModules.push('FormsModule', 'ReactiveFormsModule');
+          }
+          if (content.includes('routerLink') || content.includes('router-outlet')) {
+            requiredModules.push('RouterModule');
+          }
+          if (content.includes('HttpClient')) {
+            requiredModules.push('HttpClientModule');
+          }
+          
+          const allModules = [...new Set([...currentImports, ...requiredModules])];
+          return match.replace(imports, allModules.join(', '));
+        }
+      );
+
+      // Combine imports and content
+      files[filepath] = allImports.join('\n') + '\n\n' + updatedContent;
+    }
+  }
+
+  // Fix all service files to include necessary imports and decorators
+  for (const [filepath, content] of Object.entries(files)) {
+    if (filepath.endsWith('.service.ts')) {
+      if (!content.includes('@Injectable')) {
+        const serviceName = path.basename(filepath, '.service.ts');
+        const updatedContent = `import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+@Injectable({
+  providedIn: 'root'
+})
+${content}`;
+        files[filepath] = updatedContent;
+      }
+    }
+  }
 
   return files;
 }
@@ -1135,18 +1305,12 @@ bootstrapApplication(AppComponent, appConfig)
 import 'zone.js';  // Included with Angular CLI.
 ---
 
-- src/environments/environment.ts MUST have this exact content:
+- src/styles.css MUST have this exact content:
 ---
-export const environment = {
-  production: false
-};
----
+/* You can add global styles to this file, and also import other style files */
 
-- src/environments/environment.prod.ts MUST have this exact content:
----
-export const environment = {
-  production: true
-};
+html, body { height: 100%; }
+body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
 ---
 
 3. App Files:
@@ -1590,6 +1754,8 @@ async function buildAndServeAngular(jobId, workDir) {
 
     // Step 1: Install dependencies with detailed logging
     console.log(`Installing dependencies for job ${jobId}...`);
+    updateJobStatus(jobId, "processing", 50, "Installing dependencies");
+    
     try {
       // First, ensure we're in the correct directory
       process.chdir(workDir);
@@ -1600,18 +1766,16 @@ async function buildAndServeAngular(jobId, workDir) {
         env: { ...process.env, FORCE_COLOR: true }
       });
       console.log("Dependencies installed successfully");
+      updateJobStatus(jobId, "processing", 70, "Dependencies installed successfully");
     } catch (installError) {
       console.error("Failed to install dependencies:", installError);
-      console.error("Installation error details:", {
-        stdout: installError.stdout,
-        stderr: installError.stderr,
-        code: installError.code
-      });
       throw new Error(`Failed to install dependencies: ${installError.message}`);
     }
 
     // Step 2: Build the Angular project with detailed logging
     console.log(`Building Angular app for job ${jobId}...`);
+    updateJobStatus(jobId, "processing", 80, "Building Angular application");
+    
     try {
       // First, verify Angular CLI is installed
       await runCommand("npx", ["ng", "version"], { cwd: workDir });
@@ -1623,39 +1787,12 @@ async function buildAndServeAngular(jobId, workDir) {
       });
 
       console.log("Build completed successfully");
-      console.log("Build output:", buildResult.stdout);
+      updateJobStatus(jobId, "processing", 90, "Build completed successfully");
 
-      // Check for warnings
-      if (buildResult.stderr && buildResult.stderr.includes("Warning:")) {
-        console.warn("Build completed with warnings:", buildResult.stderr);
-      }
-    } catch (buildError) {
-      console.error("Build failed with error:", buildError);
-      console.error("Build error details:", {
-        stdout: buildError.stdout,
-        stderr: buildError.stderr,
-        code: buildError.code
-      });
-
-      // Check for common build errors
-      if (buildError.stderr) {
-        if (buildError.stderr.includes("Module not found")) {
-          throw new Error("Build failed: Missing module dependencies. Please check package.json and node_modules.");
-        } else if (buildError.stderr.includes("Cannot find module")) {
-          throw new Error("Build failed: Missing Angular module. Please check imports and dependencies.");
-        } else if (buildError.stderr.includes("compilation error")) {
-          throw new Error("Build failed: TypeScript compilation error. Please check component files.");
-        }
-      }
-
-      throw new Error(`Build failed: ${buildError.message}`);
-    }
-
-    // Step 3: Process the built files
-    const distDir = path.join(workDir, "dist/angular-app");
-    const previewDir = path.join(__dirname, "previews", jobId);
-    
-    try {
+      // Process the built files
+      const distDir = path.join(workDir, "dist/angular-app");
+      const previewDir = path.join(__dirname, "previews", jobId);
+      
       // Ensure preview directory exists
       await fs.ensureDir(previewDir);
 
@@ -1677,13 +1814,31 @@ async function buildAndServeAngular(jobId, workDir) {
         console.log("Updated index.html for preview");
       }
 
+      // Create downloadable ZIP
+      const zipPath = await createProjectZip(workDir, jobId);
+      
+      // Update job as completed
+      updateJobStatus(
+        jobId,
+        "completed",
+        100,
+        "Project files generated successfully",
+        {
+          downloadUrl: `/api/download/${jobId}`,
+          previewUrl: `/previews/${jobId}/index.html`,
+          projectPath: workDir
+        }
+      );
+
       return `/previews/${jobId}/index.html`;
-    } catch (fileError) {
-      console.error("Failed to process built files:", fileError);
-      throw new Error(`Failed to process built files: ${fileError.message}`);
+    } catch (buildError) {
+      console.error("Build failed with error:", buildError);
+      updateJobStatus(jobId, "failed", 0, `Build failed: ${buildError.message}`);
+      throw buildError;
     }
   } catch (error) {
     console.error("Failed to build Angular project:", error);
+    updateJobStatus(jobId, "failed", 0, `Build failed: ${error.message}`);
     throw error;
   }
 }

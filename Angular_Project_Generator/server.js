@@ -1046,67 +1046,74 @@ export const routes: Routes = [
   // Fix all component files to include necessary imports
   for (const [filepath, content] of Object.entries(files)) {
     if (filepath.endsWith('.component.ts')) {
-      // Remove any duplicate imports and organize them
-      const lines = content.split('\n');
-      const uniqueImports = new Set();
-      const otherLines = [];
+      // Extract existing imports
+      const importLines = content.split('\n').filter(line => line.trim().startsWith('import '));
+      const existingImports = new Set(importLines.map(line => line.trim()));
       
-      for (const line of lines) {
-        if (line.trim().startsWith('import ')) {
-          uniqueImports.add(line.trim());
-        } else {
-          otherLines.push(line);
-        }
-      }
-
-      // Add required imports
-      const requiredImports = [
+      // Define required imports based on component content
+      const requiredImports = new Set([
         'import { Component } from \'@angular/core\';',
         'import { CommonModule } from \'@angular/common\';'
-      ];
+      ]);
       
       // Add FormsModule if needed
       if (content.includes('ngModel') || content.includes('formGroup')) {
-        requiredImports.push('import { FormsModule, ReactiveFormsModule } from \'@angular/forms\';');
+        requiredImports.add('import { FormsModule, ReactiveFormsModule } from \'@angular/forms\';');
       }
       
       // Add RouterModule if needed
       if (content.includes('routerLink') || content.includes('router-outlet')) {
-        requiredImports.push('import { RouterModule } from \'@angular/router\';');
+        requiredImports.add('import { RouterModule } from \'@angular/router\';');
       }
       
       // Add HttpClientModule if needed
       if (content.includes('HttpClient')) {
-        requiredImports.push('import { HttpClientModule } from \'@angular/common/http\';');
+        requiredImports.add('import { HttpClientModule } from \'@angular/common/http\';');
       }
 
-      // Combine all imports
-      const allImports = [...requiredImports, ...uniqueImports];
+      // Combine all imports, removing duplicates
+      const allImports = [...new Set([...requiredImports, ...existingImports])];
       
-      // Update the component's imports array
-      const updatedContent = otherLines.join('\n').replace(
-        /@Component\({[\s\S]*?imports:\s*\[([\s\S]*?)\]/,
-        (match, imports) => {
-          const currentImports = imports.split(',').map(i => i.trim());
-          const requiredModules = ['CommonModule'];
+      // Extract the component decorator content
+      const decoratorMatch = content.match(/@Component\({[\s\S]*?}\)[\s\S]*?export/);
+      if (decoratorMatch) {
+        const decoratorContent = decoratorMatch[0];
+        
+        // Extract existing imports array
+        const importsMatch = decoratorContent.match(/imports:\s*\[([\s\S]*?)\]/);
+        if (importsMatch) {
+          const existingImportsArray = importsMatch[1].split(',').map(i => i.trim());
+          const requiredModules = new Set(['CommonModule']);
           
+          // Add required modules based on imports
           if (content.includes('ngModel') || content.includes('formGroup')) {
-            requiredModules.push('FormsModule', 'ReactiveFormsModule');
+            requiredModules.add('FormsModule');
+            requiredModules.add('ReactiveFormsModule');
           }
           if (content.includes('routerLink') || content.includes('router-outlet')) {
-            requiredModules.push('RouterModule');
+            requiredModules.add('RouterModule');
           }
           if (content.includes('HttpClient')) {
-            requiredModules.push('HttpClientModule');
+            requiredModules.add('HttpClientModule');
           }
           
-          const allModules = [...new Set([...currentImports, ...requiredModules])];
-          return match.replace(imports, allModules.join(', '));
+          // Combine all modules, removing duplicates
+          const allModules = [...new Set([...existingImportsArray, ...requiredModules])];
+          
+          // Update the imports array in the decorator
+          const updatedDecorator = decoratorContent.replace(
+            /imports:\s*\[([\s\S]*?)\]/,
+            `imports: [${allModules.join(', ')}]`
+          );
+          
+          // Update the component content
+          files[filepath] = content.replace(decoratorContent, updatedDecorator);
         }
-      );
-
-      // Combine imports and content
-      files[filepath] = allImports.join('\n') + '\n\n' + updatedContent;
+      }
+      
+      // Add imports at the top of the file
+      const nonImportLines = content.split('\n').filter(line => !line.trim().startsWith('import '));
+      files[filepath] = [...allImports, '', ...nonImportLines].join('\n');
     }
   }
 

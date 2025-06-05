@@ -1240,128 +1240,366 @@ export const appConfig: ApplicationConfig = {
   return fixedFiles;
 }
 
-// Update the generateAngularCode function to focus on generating component-specific code based on design requirements.
-async function generateAngularCode(inputData) {
-  try {
-    // Determine if input is Figma data or text description
-    const isFigmaData = inputData.document !== undefined;
-    
-    let designStructure;
-    if (isFigmaData) {
-      // Process Figma data into design structure
-      designStructure = await processFigmaData(inputData);
-    } else {
-      // Use text description as is
-      designStructure = inputData;
+// Add these utility functions for path handling
+function validateAndCorrectPaths(files) {
+  const pathMap = new Map();
+  const correctedFiles = { ...files };
+
+  // First pass: collect all component paths
+  Object.keys(files).forEach(filepath => {
+    if (filepath.endsWith('.component.ts')) {
+      const componentName = path.basename(filepath, '.component.ts');
+      const relativePath = path.dirname(filepath).replace('src/app/', '');
+      pathMap.set(componentName, {
+        name: componentName,
+        path: relativePath,
+        fullPath: filepath
+      });
+    }
+  });
+
+  // Second pass: correct import paths
+  Object.entries(files).forEach(([filepath, content]) => {
+    if (filepath.endsWith('.ts')) {
+      let correctedContent = content;
+
+      // Fix component imports
+      correctedContent = correctedContent.replace(
+        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]([^'"]+)['"]/g,
+        (match, imports, importPath) => {
+          const importedComponents = imports.split(',').map(imp => imp.trim());
+          const correctedImports = importedComponents.map(imp => {
+            const componentName = imp.replace('Component', '');
+            const componentInfo = pathMap.get(componentName);
+            
+            if (componentInfo) {
+              // Calculate correct relative path
+              const currentDir = path.dirname(filepath);
+              const targetDir = path.dirname(componentInfo.fullPath);
+              const relativePath = path.relative(currentDir, targetDir)
+                .replace(/\\/g, '/') // Convert Windows paths to forward slashes
+                .replace(/^\.\.\//, './') // Fix leading relative paths
+                .replace(/^\.\//, './'); // Ensure proper relative path format
+              
+              return `${imp} from '${relativePath}/${componentName}.component'`;
+            }
+            return imp;
+          });
+          
+          return `import { ${correctedImports.join(', ')} }`;
+        }
+      );
+
+      // Fix model imports
+      correctedContent = correctedContent.replace(
+        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]([^'"]+)['"]/g,
+        (match, imports, importPath) => {
+          if (importPath.includes('models')) {
+            const currentDir = path.dirname(filepath);
+            const modelPath = path.join('src/app/models', path.basename(importPath));
+            const relativePath = path.relative(currentDir, modelPath)
+              .replace(/\\/g, '/')
+              .replace(/^\.\.\//, './')
+              .replace(/^\.\//, './');
+            
+            return `import { ${imports} } from '${relativePath}'`;
+          }
+          return match;
+        }
+      );
+
+      // Fix service imports
+      correctedContent = correctedContent.replace(
+        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]([^'"]+)['"]/g,
+        (match, imports, importPath) => {
+          if (importPath.includes('services')) {
+            const currentDir = path.dirname(filepath);
+            const servicePath = path.join('src/app/services', path.basename(importPath));
+            const relativePath = path.relative(currentDir, servicePath)
+              .replace(/\\/g, '/')
+              .replace(/^\.\.\//, './')
+              .replace(/^\.\//, './');
+            
+            return `import { ${imports} } from '${relativePath}'`;
+          }
+          return match;
+        }
+      );
+
+      // Fix Angular core imports
+      correctedContent = correctedContent.replace(
+        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]@angular\/([^'"]+)['"]/g,
+        (match, imports, module) => {
+          return `import { ${imports} } from '@angular/${module}'`;
+        }
+      );
+
+      correctedFiles[filepath] = correctedContent;
+    }
+  });
+
+  return correctedFiles;
+}
+
+// Add this function to validate component structure
+function validateComponentStructure(files) {
+  const errors = [];
+  const components = new Map();
+
+  // Collect all components
+  Object.keys(files).forEach(filepath => {
+    if (filepath.endsWith('.component.ts')) {
+      const componentName = path.basename(filepath, '.component.ts');
+      const dir = path.dirname(filepath);
+      components.set(componentName, {
+        name: componentName,
+        dir,
+        files: {
+          ts: filepath,
+          html: path.join(dir, `${componentName}.component.html`),
+          css: path.join(dir, `${componentName}.component.css`)
+        }
+      });
+    }
+  });
+
+  // Validate each component
+  components.forEach(component => {
+    // Check if all required files exist
+    if (!files[component.files.html]) {
+      errors.push(`Missing HTML file for component ${component.name}`);
+    }
+    if (!files[component.files.css]) {
+      errors.push(`Missing CSS file for component ${component.name}`);
     }
 
-    const memoryGuidelines = await llmMemory.getFormattedMemory();
-    
-    // Generate complete Angular project code using Gemini API
+    // Validate component class
+    const content = files[component.files.ts];
+    if (!content.includes(`export class ${component.name}Component`)) {
+      errors.push(`Invalid component class name for ${component.name}`);
+    }
+
+    // Validate imports
+    if (!content.includes('@angular/core')) {
+      errors.push(`Missing @angular/core import in ${component.name}`);
+    }
+    if (!content.includes('CommonModule')) {
+      errors.push(`Missing CommonModule import in ${component.name}`);
+    }
+
+    // Validate component decorator
+    if (!content.includes('@Component')) {
+      errors.push(`Missing @Component decorator in ${component.name}`);
+    }
+    if (!content.includes('standalone: true')) {
+      errors.push(`Component ${component.name} must be standalone`);
+    }
+  });
+
+  return errors;
+}
+
+// Function to extract JSON from text
+const extractJson = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (e2) {
+        throw new Error('Could not extract valid JSON from response');
+      }
+    }
+    throw new Error('No JSON found in response');
+  }
+};
+
+// Function to make API call with retries
+const makeApiCall = async (prompt, maxRetries = 3) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(prompt)
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      const generatedText = result.candidates[0].content.parts[0].text;
+      
+      // Clean the response text
+      const cleanedText = generatedText
+        .replace(/```json\n?|\n?```/g, '')
+        .replace(/```typescript\n?|\n?```/g, '')
+        .replace(/```javascript\n?|\n?```/g, '')
+        .replace(/```\n?|\n?```/g, '')
+        .trim();
+
+      // Try to extract and parse JSON
+      return extractJson(cleanedText);
+    } catch (error) {
+      console.error(`Attempt ${i + 1} failed:`, error);
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+    }
+  }
+};
+
+async function generateAngularCode(inputData) {
+  try {
+    const isFigmaData = inputData.document !== undefined;
+    const designStructure = isFigmaData ? await processFigmaData(inputData) : inputData;
+
+    // Generate component code with strict requirements
     const componentPrompt = {
       contents: [{
         parts: [{
-          text: `You are an expert Angular developer. Generate Angular components based on this ${isFigmaData ? 'Figma design' : 'design description'}:
+          text: `Generate complete Angular 17+ components based on this ${isFigmaData ? 'Figma design' : 'design description'}:
 
 ${JSON.stringify(designStructure, null, 2)}
 
-CRITICAL: You MUST generate ONLY the components specified in the design. For each component, generate:
-1. Component class (TS)
-2. Template (HTML)
-3. Styles (CSS)
+CRITICAL REQUIREMENTS:
+1. For EACH component in the design, you MUST generate:
+   - A TypeScript file (.component.ts)
+   - An HTML template (.component.html)
+   - A CSS file (.component.css)
+   - All files must be in the same directory as the component
 
-For each component, follow these rules:
-1. Component Class (TS):
-   - Use proper TypeScript types
-   - Include necessary imports
-   - Add proper decorators
-   - Include required properties and methods
-   - Handle events properly
-   - Use proper typing for inputs/outputs
+2. Each component MUST follow this exact structure:
+   \`\`\`typescript
+   // [component-name].component.ts
+   import { Component } from '@angular/core';
+   import { CommonModule } from '@angular/common';
+   import { FormsModule, ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
+   import { RouterModule } from '@angular/router';
 
-2. Template (HTML):
-   - Match the exact layout from the design
-   - Use proper Angular directives
-   - Include proper bindings
-   - Handle user interactions
-   - Use proper structural directives
-   - Include proper event bindings
+   @Component({
+     selector: 'app-[component-name]',
+     templateUrl: './[component-name].component.html',
+     styleUrls: ['./[component-name].component.css'],
+     standalone: true,
+     imports: [CommonModule, FormsModule, ReactiveFormsModule, RouterModule]
+   })
+   export class [ComponentName]Component {
+     // For components with forms:
+     form: FormGroup;
+     
+     constructor(private fb: FormBuilder) {
+       this.form = this.fb.group({
+         // Form controls with validators
+         email: ['', [Validators.required, Validators.email]],
+         password: ['', [Validators.required, Validators.minLength(8)]],
+         // Add other form controls as needed
+       });
+     }
 
-3. Styles (CSS):
-   - Match exact colors, sizes, and spacing from design
-   - Use proper CSS selectors
-   - Include responsive design
-   - Handle different states (hover, active, etc.)
-   - Use proper CSS units
-   - Include proper animations if specified
+     // Form validation methods
+     get email() { return this.form.get('email'); }
+     get password() { return this.form.get('password'); }
 
-Example component structure:
-{
-  "files": {
-    "src/app/components/header/header.component.ts": \`
-import { Component, Input, Output, EventEmitter } from '@angular/core';
-import { CommonModule } from '@angular/common';
+     onSubmit() {
+       if (this.form.valid) {
+         // Handle form submission
+       }
+     }
+   }
+   \`\`\`
 
-@Component({
-  selector: 'app-header',
-  standalone: true,
-  imports: [CommonModule],
-  templateUrl: './header.component.html',
-  styleUrls: ['./header.component.css']
-})
-export class HeaderComponent {
-  @Input() title: string = '';
-  @Output() menuClick = new EventEmitter<void>();
+   \`\`\`html
+   <!-- [component-name].component.html -->
+   <div class="[component-name]-container">
+     <!-- For components with forms: -->
+     <form [formGroup]="form" (ngSubmit)="onSubmit()" class="form">
+       <div class="form-group">
+         <label for="email">Email</label>
+         <input 
+           type="email" 
+           id="email" 
+           formControlName="email"
+           [class.is-invalid]="email?.invalid && (email?.dirty || email?.touched)"
+         >
+         <div class="error-message" *ngIf="email?.invalid && (email?.dirty || email?.touched)">
+           <span *ngIf="email?.errors?.['required']">Email is required</span>
+           <span *ngIf="email?.errors?.['email']">Please enter a valid email</span>
+         </div>
+       </div>
 
-  onMenuClick() {
-    this.menuClick.emit();
-  }
-}\`,
-    "src/app/components/header/header.component.html": \`
-<header class="header">
-  <h1>{{title}}</h1>
-  <button (click)="onMenuClick()">Menu</button>
-</header>\`,
-    "src/app/components/header/header.component.css": \`
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem;
-  background-color: #ffffff;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
+       <div class="form-group">
+         <label for="password">Password</label>
+         <input 
+           type="password" 
+           id="password" 
+           formControlName="password"
+           [class.is-invalid]="password?.invalid && (password?.dirty || password?.touched)"
+         >
+         <div class="error-message" *ngIf="password?.invalid && (password?.dirty || password?.touched)">
+           <span *ngIf="password?.errors?.['required']">Password is required</span>
+           <span *ngIf="password?.errors?.['minlength']">Password must be at least 8 characters</span>
+         </div>
+       </div>
 
-h1 {
-  margin: 0;
-  font-size: 1.5rem;
-  color: #333;
-}
+       <button type="submit" [disabled]="form.invalid">Submit</button>
+     </form>
+   </div>
+   \`\`\`
 
-button {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 4px;
-  background-color: #007bff;
-  color: white;
-  cursor: pointer;
-}
+   \`\`\`css
+   /* [component-name].component.css */
+     // Component logic here
+   }
+   \`\`\`
 
-button:hover {
-  background-color: #0056b3;
-}\`
-  }
-}
+   \`\`\`html
+   <!-- [component-name].component.html -->
+   <div class="[component-name]-container">
+     <!-- Component template here -->
+   </div>
+   \`\`\`
 
-IMPORTANT: 
-1. Generate ONLY the components specified in the design
-2. Each component MUST have its TS, HTML, and CSS files
-3. Code MUST match the exact design specifications
-4. Use proper Angular practices and patterns
-5. Include proper error handling and type safety
-6. Follow Angular 17+ best practices
+   \`\`\`css
+   /* [component-name].component.css */
+   .[component-name]-container {
+     /* Component styles here */
+   }
+   \`\`\`
 
-Return ONLY a valid JSON object with the component files, no additional text or explanations.`
+3. File Organization:
+   - Each component must be in its own directory under src/app/components/
+   - Use proper naming convention: [ComponentName]Component
+   - All files must use the same base name
+   - All paths must be relative to the component directory
+
+4. Required Imports:
+   - @angular/core
+   - @angular/common
+   - @angular/forms
+   - @angular/router
+
+5. Component Decorator:
+   - Must include selector, templateUrl, styleUrls
+   - Must be standalone: true
+   - Must import required modules
+
+6. Return Format:
+   Return a JSON object with this structure:
+   {
+     "files": {
+       "src/app/components/[component-name]/[component-name].component.ts": "content",
+       "src/app/components/[component-name]/[component-name].component.html": "content",
+       "src/app/components/[component-name]/[component-name].component.css": "content"
+     }
+   }
+
+IMPORTANT: Generate ALL required files for EACH component in the design. Do not skip any files.`
         }]
       }],
       generationConfig: {
@@ -1372,61 +1610,6 @@ Return ONLY a valid JSON object with the component files, no additional text or 
       }
     };
 
-    // Function to extract JSON from text
-    const extractJson = (text) => {
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            return JSON.parse(jsonMatch[0]);
-          } catch (e2) {
-            throw new Error('Could not extract valid JSON from response');
-          }
-        }
-        throw new Error('No JSON found in response');
-      }
-    };
-
-    // Function to make API call with retries
-    const makeApiCall = async (prompt, maxRetries = 3) => {
-      for (let i = 0; i < maxRetries; i++) {
-        try {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent?key=${GEMINI_API_KEY}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(prompt)
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error(`API call failed: ${response.statusText}`);
-          }
-
-          const result = await response.json();
-          const generatedText = result.candidates[0].content.parts[0].text;
-          
-          // Clean the response text
-          const cleanedText = generatedText
-            .replace(/```json\n?|\n?```/g, '')
-            .replace(/```typescript\n?|\n?```/g, '')
-            .replace(/```javascript\n?|\n?```/g, '')
-            .replace(/```\n?|\n?```/g, '')
-            .trim();
-
-          // Try to extract and parse JSON
-          return extractJson(cleanedText);
-        } catch (error) {
-          console.error(`Attempt ${i + 1} failed:`, error);
-          if (i === maxRetries - 1) throw error;
-          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-        }
-      }
-    };
-
     // Generate initial code
     const generatedCode = await makeApiCall(componentPrompt);
     
@@ -1434,39 +1617,60 @@ Return ONLY a valid JSON object with the component files, no additional text or 
     const validationPrompt = {
       contents: [{
         parts: [{
-          text: `Verify and fix these Angular components, ensuring they match the provided ${isFigmaData ? 'Figma design' : 'design description'}:
+          text: `Verify and fix these Angular components, ensuring they are error-free and match the provided ${isFigmaData ? 'Figma design' : 'design description'}:
 
 ${JSON.stringify(generatedCode, null, 2)}
 
 CRITICAL VALIDATION RULES:
-1. Each component MUST have:
-   - Proper TypeScript class with decorators
-   - Matching HTML template
-   - Matching CSS styles
-   - Proper imports and exports
-   - Proper type definitions
-   - Proper event handling
+1. Component Naming and Imports:
+   - Component class names MUST be PascalCase with 'Component' suffix (e.g., LoginPageComponent)
+   - Component file names MUST be kebab-case (e.g., login-page.component.ts)
+   - Import paths MUST be relative to the component directory
+   - Import statements MUST use correct PascalCase names
+   - Example:
+     \`\`\`typescript
+     // Correct import
+     import { LoginPageComponent } from './components/login-page/login-page.component';
+     
+     // Correct component class
+     export class LoginPageComponent {
+       // ...
+     }
+     \`\`\`
 
-2. HTML templates MUST:
-   - Match the design layout exactly
-   - Use proper Angular directives
-   - Have proper bindings
-   - Handle all interactions
-   - Be properly structured
+2. Route Configuration:
+   - Routes MUST use correct PascalCase component names
+   - Import paths MUST be relative to the routes file
+   - Example:
+     \`\`\`typescript
+     import { Routes } from '@angular/router';
+     import { LoginPageComponent } from './components/login-page/login-page.component';
+     
+     export const routes: Routes = [
+       { path: 'login', component: LoginPageComponent }
+     ];
+     \`\`\`
 
-3. CSS styles MUST:
-   - Match design colors and spacing
-   - Be properly scoped
-   - Handle all states
-   - Be responsive
-   - Include proper animations
+3. Component Structure:
+   - Each component MUST have:
+     * TypeScript file (.component.ts)
+     * HTML template (.component.html)
+     * CSS file (.component.css)
+   - All files MUST be in the same directory
+   - Component MUST be standalone: true
+   - Component MUST have proper imports
 
-4. TypeScript code MUST:
-   - Be properly typed
-   - Handle all events
-   - Include proper error handling
-   - Follow Angular best practices
-   - Be properly structured
+4. File Organization:
+   - Components MUST be in src/app/components/[component-name]/
+   - File names MUST match component names (kebab-case)
+   - All paths MUST be relative to the component directory
+
+5. Common Issues to Fix:
+   - Incorrect component name casing (e.g., loginPageComponent → LoginPageComponent)
+   - Incorrect import paths (e.g., wrong relative paths)
+   - Missing or incorrect component references in routes
+   - Missing required imports
+   - Incorrect file naming
 
 If any issues are found, fix them and return the complete, corrected components.
 
@@ -1512,7 +1716,7 @@ bootstrapApplication(AppComponent, appConfig)
 import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
-import { FormsModule } from '@angular/forms';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -1520,7 +1724,7 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes),
     provideHttpClient(),
     provideAnimations(),
-    importProvidersFrom(FormsModule)
+    importProvidersFrom(FormsModule, ReactiveFormsModule)
   ]
 };`,
       'src/app/app.component.ts': `import { Component } from '@angular/core';

@@ -1240,12 +1240,19 @@ export const appConfig: ApplicationConfig = {
   return fixedFiles;
 }
 
-// Update the generateAngularCode function to handle common Angular errors and provide proper component structure.
-async function generateAngularCode(designStructure) {
+// Update the generateAngularCode function to focus on generating component-specific code based on design requirements.
+async function generateAngularCode(inputData) {
   try {
-    // Validate design structure
-    if (!designStructure || typeof designStructure !== 'object') {
-      throw new Error('Invalid design structure provided');
+    // Determine if input is Figma data or text description
+    const isFigmaData = inputData.document !== undefined;
+    
+    let designStructure;
+    if (isFigmaData) {
+      // Process Figma data into design structure
+      designStructure = await processFigmaData(inputData);
+    } else {
+      // Use text description as is
+      designStructure = inputData;
     }
 
     const memoryGuidelines = await llmMemory.getFormattedMemory();
@@ -1254,264 +1261,107 @@ async function generateAngularCode(designStructure) {
     const componentPrompt = {
       contents: [{
         parts: [{
-          text: `You are an expert Angular developer. Generate a complete, working Angular project based on this design structure:
+          text: `You are an expert Angular developer. Generate Angular components based on this ${isFigmaData ? 'Figma design' : 'design description'}:
 
 ${JSON.stringify(designStructure, null, 2)}
 
-CRITICAL PACKAGE VERSION RULES:
-1. ALWAYS use compatible versions:
-   - @angular/* packages: "~17.0.0"
-   - typescript: "~5.2.2"  // Must be exactly this version for Angular 17
-   - @angular-devkit/build-angular: "~17.0.0"
-   - @angular/cli: "~17.0.0"
-   - @angular/compiler-cli: "~17.0.0"
+CRITICAL: You MUST generate ONLY the components specified in the design. For each component, generate:
+1. Component class (TS)
+2. Template (HTML)
+3. Styles (CSS)
 
-Example package.json structure:
+For each component, follow these rules:
+1. Component Class (TS):
+   - Use proper TypeScript types
+   - Include necessary imports
+   - Add proper decorators
+   - Include required properties and methods
+   - Handle events properly
+   - Use proper typing for inputs/outputs
+
+2. Template (HTML):
+   - Match the exact layout from the design
+   - Use proper Angular directives
+   - Include proper bindings
+   - Handle user interactions
+   - Use proper structural directives
+   - Include proper event bindings
+
+3. Styles (CSS):
+   - Match exact colors, sizes, and spacing from design
+   - Use proper CSS selectors
+   - Include responsive design
+   - Handle different states (hover, active, etc.)
+   - Use proper CSS units
+   - Include proper animations if specified
+
+Example component structure:
 {
-  "name": "angular-app",
-  "version": "0.0.0",
-  "scripts": {
-    "ng": "ng",
-    "start": "ng serve",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development"
-  },
-  "private": true,
-  "dependencies": {
-    "@angular/animations": "~17.0.0",
-    "@angular/common": "~17.0.0",
-    "@angular/compiler": "~17.0.0",
-    "@angular/core": "~17.0.0",
-    "@angular/forms": "~17.0.0",
-    "@angular/platform-browser": "~17.0.0",
-    "@angular/platform-browser-dynamic": "~17.0.0",
-    "@angular/router": "~17.0.0",
-    "rxjs": "~7.8.0",
-    "tslib": "^2.3.0",
-    "zone.js": "~0.14.2"
-  },
-  "devDependencies": {
-    "@angular-devkit/build-angular": "~17.0.0",
-    "@angular/cli": "~17.0.0",
-    "@angular/compiler-cli": "~17.0.0",
-    "@types/jasmine": "~5.1.0",
-    "jasmine-core": "~5.1.0",
-    "karma": "~6.4.0",
-    "karma-chrome-launcher": "~3.2.0",
-    "karma-coverage": "~2.2.0",
-    "karma-jasmine": "~5.1.0",
-    "karma-jasmine-html-reporter": "~2.1.0",
-    "typescript": "~5.2.2"  // Must be exactly this version for Angular 17
+  "files": {
+    "src/app/components/header/header.component.ts": \`
+import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { CommonModule } from '@angular/common';
+
+@Component({
+  selector: 'app-header',
+  standalone: true,
+  imports: [CommonModule],
+  templateUrl: './header.component.html',
+  styleUrls: ['./header.component.css']
+})
+export class HeaderComponent {
+  @Input() title: string = '';
+  @Output() menuClick = new EventEmitter<void>();
+
+  onMenuClick() {
+    this.menuClick.emit();
+  }
+}\`,
+    "src/app/components/header/header.component.html": \`
+<header class="header">
+  <h1>{{title}}</h1>
+  <button (click)="onMenuClick()">Menu</button>
+</header>\`,
+    "src/app/components/header/header.component.css": \`
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background-color: #ffffff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #333;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #0056b3;
+}\`
   }
 }
 
-CRITICAL MAIN.TS RULES:
-1. NEVER import AppModule - Angular 17+ uses standalone components
-2. ALWAYS use bootstrapApplication with appConfig
-3. ALWAYS import provideRouter for routing
-4. ALWAYS import provideHttpClient for HTTP
-5. ALWAYS import provideAnimations for animations
+IMPORTANT: 
+1. Generate ONLY the components specified in the design
+2. Each component MUST have its TS, HTML, and CSS files
+3. Code MUST match the exact design specifications
+4. Use proper Angular practices and patterns
+5. Include proper error handling and type safety
+6. Follow Angular 17+ best practices
 
-Example main.ts structure:
-import { bootstrapApplication } from '@angular/platform-browser';
-import { appConfig } from './app/app.config';
-import { AppComponent } from './app/app.component';
-
-bootstrapApplication(AppComponent, appConfig)
-  .catch(err => console.error(err));
-
-CRITICAL COMPONENT PATH RULES:
-1. ALWAYS use correct relative paths:
-   - For shared components: '../shared/[component-name]'
-   - For feature components: '../features/[component-name]'
-   - For page components: '../pages/[component-name]'
-2. NEVER use absolute paths from src/app
-3. ALWAYS include .component suffix in imports
-4. ALWAYS use proper casing in imports
-
-CRITICAL COMPONENT STRUCTURE:
-1. EVERY component MUST:
-   - Be standalone
-   - Import CommonModule
-   - Import RouterModule if using routing
-   - Import FormsModule if using forms
-   - Import HttpClientModule if using HTTP
-   - Have proper imports array in decorator
-   - Have proper exports
-
-2. EVERY component using events MUST:
-   - Properly type the event target
-   - Handle null checks
-   - Use proper event typing
-   - Use proper event handling
-
-3. EVERY component emitting data MUST:
-   - Include all required properties
-   - Use proper typing
-   - Handle null cases
-   - Validate data before emitting
-
-CRITICAL FILE STRUCTURE:
-1. app.component.ts MUST:
-   - Be standalone
-   - Import CommonModule
-   - Import RouterModule
-   - Import RouterOutlet
-   - NOT be declared in NgModule
-
-2. app.routes.ts MUST:
-   - Import Routes from '@angular/router'
-   - Import ALL components
-   - Export routes array
-   - Use proper path configuration
-
-3. app.config.ts MUST:
-   - Import ApplicationConfig
-   - Import provideRouter
-   - Import provideHttpClient
-   - Import provideAnimations
-   - Import FormsModule
-   - Import routes
-   - Export appConfig
-
-4. EVERY shared component MUST:
-   - Be in src/app/shared/[component-name]/
-   - Have proper imports
-   - Have proper exports
-   - Have proper barrel files
-   - Have proper event handling
-   - Have proper typing
-
-5. EVERY feature component MUST:
-   - Be in src/app/features/[component-name]/
-   - Have proper imports
-   - Have proper exports
-   - Have proper barrel files
-   - Have proper event handling
-   - Have proper typing
-
-6. EVERY page component MUST:
-   - Be in src/app/pages/[component-name]/
-   - Have proper imports
-   - Have proper exports
-   - Have proper barrel files
-   - Have proper event handling
-   - Have proper typing
-
-CRITICAL EVENT HANDLING:
-1. EVERY event handler MUST:
-   - Use proper typing for $event
-   - Handle null checks
-   - Use proper event target typing
-   - Include error handling
-   - Validate data before emitting
-
-2. EVERY form event MUST:
-   - Use proper typing for form events
-   - Handle null checks
-   - Use proper form control typing
-   - Include validation
-   - Include error handling
-
-3. EVERY input event MUST:
-   - Use proper typing for input events
-   - Handle null checks
-   - Use proper input typing
-   - Include validation
-   - Include error handling
-
-4. EVERY select event MUST:
-   - Use proper typing for select events
-   - Handle null checks
-   - Use proper select typing
-   - Include validation
-   - Include error handling
-
-CRITICAL TYPE SAFETY:
-1. EVERY interface MUST:
-   - Be in a separate file
-   - Be properly exported
-   - Include all required properties
-   - Use proper typing
-
-2. EVERY type MUST:
-   - Be properly defined
-   - Be properly exported
-   - Include all required properties
-   - Use proper typing
-
-3. EVERY event type MUST:
-   - Be properly defined
-   - Include proper event target typing
-   - Include proper event data typing
-   - Include proper null checks
-
-4. EVERY emitted object MUST:
-   - Include all required properties
-   - Use proper typing
-   - Include proper validation
-   - Include proper error handling
-
-CRITICAL IMPORT RULES:
-1. EVERY component MUST:
-   - Import CommonModule from '@angular/common'
-   - Import RouterModule if using routing
-   - Import FormsModule if using forms
-   - Import HttpClientModule if using HTTP
-   - Use correct relative paths
-   - Include .component suffix
-   - Use proper casing
-
-2. EVERY shared component MUST:
-   - Be imported from '../shared/[component-name]'
-   - Have proper barrel exports
-   - Have proper typing
-   - Have proper error handling
-
-3. EVERY feature component MUST:
-   - Be imported from '../features/[component-name]'
-   - Have proper barrel exports
-   - Have proper typing
-   - Have proper error handling
-
-4. EVERY page component MUST:
-   - Be imported from '../pages/[component-name]'
-   - Have proper barrel exports
-   - Have proper typing
-   - Have proper error handling
-
-IMPORTANT: You MUST generate ALL code yourself based on these rules. Do not rely on any pre-written code or examples. Generate everything from scratch based on the design structure provided.
-
-Return ONLY a valid JSON object in this exact format, with no additional text or explanations:
-{
-  "files": {
-    "src/index.html": "content here",
-    "src/styles.css": "content here",
-    "src/main.ts": "content here",
-    "src/polyfills.ts": "content here",
-    "src/polyfills.ngtypecheck.ts": "content here",
-    "src/app/app.component.ts": "content here",
-    "src/app/app.component.html": "content here",
-    "src/app/app.component.css": "content here",
-    "src/app/app.routes.ts": "content here",
-    "src/app/app.config.ts": "content here",
-    "angular.json": "content here",
-    "tsconfig.json": "content here",
-    "tsconfig.app.json": "content here",
-    "package.json": "content here",
-    "src/environments/environment.ts": "content here",
-    "src/environments/environment.prod.ts": "content here",
-    // ... component files based on design
-    "src/app/shared/[component-name]/[component-name].component.ts": "content here",
-    "src/app/shared/[component-name]/[component-name].component.html": "content here",
-    "src/app/shared/[component-name]/[component-name].component.css": "content here",
-    "src/app/shared/[component-name]/index.ts": "content here",
-    // ... service files if needed
-    "src/app/services/[service-name].service.ts": "content here",
-    // ... model files if needed
-    "src/app/models/[model-name].ts": "content here"
-  }
-}`
+Return ONLY a valid JSON object with the component files, no additional text or explanations.`
         }]
       }],
       generationConfig: {
@@ -1524,11 +1374,9 @@ Return ONLY a valid JSON object in this exact format, with no additional text or
 
     // Function to extract JSON from text
     const extractJson = (text) => {
-      // First try to parse the text directly
       try {
         return JSON.parse(text);
       } catch (e) {
-        // If that fails, try to find JSON in the text
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try {
@@ -1574,7 +1422,6 @@ Return ONLY a valid JSON object in this exact format, with no additional text or
         } catch (error) {
           console.error(`Attempt ${i + 1} failed:`, error);
           if (i === maxRetries - 1) throw error;
-          // Wait before retrying
           await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
         }
       }
@@ -1587,235 +1434,43 @@ Return ONLY a valid JSON object in this exact format, with no additional text or
     const validationPrompt = {
       contents: [{
         parts: [{
-          text: `Verify and fix this Angular project structure, ensuring ALL code is generated correctly:
+          text: `Verify and fix these Angular components, ensuring they match the provided ${isFigmaData ? 'Figma design' : 'design description'}:
 
 ${JSON.stringify(generatedCode, null, 2)}
 
-CRITICAL PACKAGE VERSION RULES:
-1. ALWAYS use compatible versions:
-   - @angular/* packages: "~17.0.0"
-   - typescript: "~5.2.2"
-   - @angular-devkit/build-angular: "~17.0.0"
-   - @angular/cli: "~17.0.0"
-   - @angular/compiler-cli: "~17.0.0"
+CRITICAL VALIDATION RULES:
+1. Each component MUST have:
+   - Proper TypeScript class with decorators
+   - Matching HTML template
+   - Matching CSS styles
+   - Proper imports and exports
+   - Proper type definitions
+   - Proper event handling
 
-Example package.json structure:
-{
-  "name": "angular-app",
-  "version": "0.0.0",
-  "scripts": {
-    "ng": "ng",
-    "start": "ng serve",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development"
-  },
-  "private": true,
-  "dependencies": {
-    "@angular/animations": "~17.0.0",
-    "@angular/common": "~17.0.0",
-    "@angular/compiler": "~17.0.0",
-    "@angular/core": "~17.0.0",
-    "@angular/forms": "~17.0.0",
-    "@angular/platform-browser": "~17.0.0",
-    "@angular/platform-browser-dynamic": "~17.0.0",
-    "@angular/router": "~17.0.0",
-    "rxjs": "~7.8.0",
-    "tslib": "^2.3.0",
-    "zone.js": "~0.14.2"
-  },
-  "devDependencies": {
-    "@angular-devkit/build-angular": "~17.0.0",
-    "@angular/cli": "~17.0.0",
-    "@angular/compiler-cli": "~17.0.0",
-    "@types/jasmine": "~5.1.0",
-    "jasmine-core": "~5.1.0",
-    "karma": "~6.4.0",
-    "karma-chrome-launcher": "~3.2.0",
-    "karma-coverage": "~2.2.0",
-    "karma-jasmine": "~5.1.0",
-    "karma-jasmine-html-reporter": "~2.1.0",
-    "typescript": "~5.2.2"
-  }
-}
+2. HTML templates MUST:
+   - Match the design layout exactly
+   - Use proper Angular directives
+   - Have proper bindings
+   - Handle all interactions
+   - Be properly structured
 
-CRITICAL MAIN.TS RULES:
-1. NEVER import AppModule - Angular 17+ uses standalone components
-2. ALWAYS use bootstrapApplication with appConfig
-3. ALWAYS import provideRouter for routing
-4. ALWAYS import provideHttpClient for HTTP
-5. ALWAYS import provideAnimations for animations
+3. CSS styles MUST:
+   - Match design colors and spacing
+   - Be properly scoped
+   - Handle all states
+   - Be responsive
+   - Include proper animations
 
-Example main.ts structure:
-import { bootstrapApplication } from '@angular/platform-browser';
-import { appConfig } from './app/app.config';
-import { AppComponent } from './app/app.component';
-
-bootstrapApplication(AppComponent, appConfig)
-  .catch(err => console.error(err));
-
-CRITICAL COMPONENT PATH RULES:
-1. ALWAYS use correct relative paths:
-   - For shared components: '../shared/[component-name]'
-   - For feature components: '../features/[component-name]'
-   - For page components: '../pages/[component-name]'
-2. NEVER use absolute paths from src/app
-3. ALWAYS include .component suffix in imports
-4. ALWAYS use proper casing in imports
-
-CRITICAL COMPONENT STRUCTURE:
-1. EVERY component MUST:
-   - Be standalone
-   - Import CommonModule
-   - Import RouterModule if using routing
-   - Import FormsModule if using forms
-   - Import HttpClientModule if using HTTP
-   - Have proper imports array in decorator
-   - Have proper exports
-
-2. EVERY component using events MUST:
-   - Properly type the event target
-   - Handle null checks
-   - Use proper event typing
-   - Use proper event handling
-
-3. EVERY component emitting data MUST:
-   - Include all required properties
-   - Use proper typing
-   - Handle null cases
-   - Validate data before emitting
-
-CRITICAL FILE STRUCTURE:
-1. app.component.ts MUST:
-   - Be standalone
-   - Import CommonModule
-   - Import RouterModule
-   - Import RouterOutlet
-   - NOT be declared in NgModule
-
-2. app.routes.ts MUST:
-   - Import Routes from '@angular/router'
-   - Import ALL components
-   - Export routes array
-   - Use proper path configuration
-
-3. app.config.ts MUST:
-   - Import ApplicationConfig
-   - Import provideRouter
-   - Import provideHttpClient
-   - Import provideAnimations
-   - Import FormsModule
-   - Import routes
-   - Export appConfig
-
-4. EVERY shared component MUST:
-   - Be in src/app/shared/[component-name]/
-   - Have proper imports
-   - Have proper exports
-   - Have proper barrel files
-   - Have proper event handling
-   - Have proper typing
-
-5. EVERY feature component MUST:
-   - Be in src/app/features/[component-name]/
-   - Have proper imports
-   - Have proper exports
-   - Have proper barrel files
-   - Have proper event handling
-   - Have proper typing
-
-6. EVERY page component MUST:
-   - Be in src/app/pages/[component-name]/
-   - Have proper imports
-   - Have proper exports
-   - Have proper barrel files
-   - Have proper event handling
-   - Have proper typing
-
-CRITICAL EVENT HANDLING:
-1. EVERY event handler MUST:
-   - Use proper typing for $event
-   - Handle null checks
-   - Use proper event target typing
-   - Include error handling
-   - Validate data before emitting
-
-2. EVERY form event MUST:
-   - Use proper typing for form events
-   - Handle null checks
-   - Use proper form control typing
-   - Include validation
-   - Include error handling
-
-3. EVERY input event MUST:
-   - Use proper typing for input events
-   - Handle null checks
-   - Use proper input typing
-   - Include validation
-   - Include error handling
-
-4. EVERY select event MUST:
-   - Use proper typing for select events
-   - Handle null checks
-   - Use proper select typing
-   - Include validation
-   - Include error handling
-
-CRITICAL TYPE SAFETY:
-1. EVERY interface MUST:
-   - Be in a separate file
-   - Be properly exported
-   - Include all required properties
-   - Use proper typing
-
-2. EVERY type MUST:
-   - Be properly defined
-   - Be properly exported
-   - Include all required properties
-   - Use proper typing
-
-3. EVERY event type MUST:
-   - Be properly defined
-   - Include proper event target typing
-   - Include proper event data typing
-   - Include proper null checks
-
-4. EVERY emitted object MUST:
-   - Include all required properties
-   - Use proper typing
-   - Include proper validation
+4. TypeScript code MUST:
+   - Be properly typed
+   - Handle all events
    - Include proper error handling
+   - Follow Angular best practices
+   - Be properly structured
 
-CRITICAL IMPORT RULES:
-1. EVERY component MUST:
-   - Import CommonModule from '@angular/common'
-   - Import RouterModule if using routing
-   - Import FormsModule if using forms
-   - Import HttpClientModule if using HTTP
-   - Use correct relative paths
-   - Include .component suffix
-   - Use proper casing
+If any issues are found, fix them and return the complete, corrected components.
 
-2. EVERY shared component MUST:
-   - Be imported from '../shared/[component-name]'
-   - Have proper barrel exports
-   - Have proper typing
-   - Have proper error handling
-
-3. EVERY feature component MUST:
-   - Be imported from '../features/[component-name]'
-   - Have proper barrel exports
-   - Have proper typing
-   - Have proper error handling
-
-4. EVERY page component MUST:
-   - Be imported from '../pages/[component-name]'
-   - Have proper barrel exports
-   - Have proper typing
-   - Have proper error handling
-
-If any issues are found, fix them and return the complete, corrected project structure.
-
-IMPORTANT: Return ONLY a valid JSON object in the same format as above, with no additional text or explanations.`
+IMPORTANT: Return ONLY a valid JSON object with the component files, no additional text or explanations.`
         }]
       }],
       generationConfig: {
@@ -1829,10 +1484,325 @@ IMPORTANT: Return ONLY a valid JSON object in the same format as above, with no 
     // Get validated code
     const validatedCode = await makeApiCall(validationPrompt);
 
-    return validatedCode.files;
+    // Add required Angular configuration files
+    const configFiles = {
+      'src/index.html': `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Angular App</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+<body>
+  <app-root></app-root>
+</body>
+</html>`,
+      'src/styles.css': `/* You can add global styles to this file, and also import other style files */
+html, body { height: 100%; }
+body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }`,
+      'src/main.ts': `import { bootstrapApplication } from '@angular/platform-browser';
+import { appConfig } from './app/app.config';
+import { AppComponent } from './app/app.component';
+
+bootstrapApplication(AppComponent, appConfig)
+  .catch(err => console.error(err));`,
+      'src/app/app.config.ts': `import { ApplicationConfig, importProvidersFrom } from '@angular/core';
+import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { provideAnimations } from '@angular/platform-browser/animations';
+import { FormsModule } from '@angular/forms';
+import { routes } from './app.routes';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(routes),
+    provideHttpClient(),
+    provideAnimations(),
+    importProvidersFrom(FormsModule)
+  ]
+};`,
+      'src/app/app.component.ts': `import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterOutlet } from '@angular/router';
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, RouterOutlet],
+  templateUrl: './app.component.html',
+  styleUrls: ['./app.component.css']
+})
+export class AppComponent {
+  title = 'angular-app';
+}`,
+      'src/app/app.component.html': `<main>
+  <router-outlet></router-outlet>
+</main>`,
+      'src/app/app.component.css': `main {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}`,
+      'src/app/app.routes.ts': `import { Routes } from '@angular/router';
+${Object.keys(validatedCode.files)
+  .filter(file => file.endsWith('.component.ts'))
+  .map(file => {
+    const componentName = file.split('/').pop().replace('.component.ts', '');
+    return `import { ${componentName}Component } from './components/${componentName}/${componentName}.component';`;
+  })
+  .join('\n')}
+
+export const routes: Routes = [
+  ${Object.keys(validatedCode.files)
+    .filter(file => file.endsWith('.component.ts'))
+    .map(file => {
+      const componentName = file.split('/').pop().replace('.component.ts', '');
+      return `{ path: '${componentName.toLowerCase()}', component: ${componentName}Component }`;
+    })
+    .join(',\n  ')},
+  { path: '**', redirectTo: '' }
+];`,
+      'angular.json': JSON.stringify({
+        "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+        "version": 1,
+        "newProjectRoot": "projects",
+        "projects": {
+          "angular-app": {
+            "projectType": "application",
+            "schematics": {
+              "@schematics/angular:component": {
+                "style": "css",
+                "standalone": true
+              }
+            },
+            "root": "",
+            "sourceRoot": "src",
+            "prefix": "app",
+            "architect": {
+              "build": {
+                "builder": "@angular-devkit/build-angular:application",
+                "options": {
+                  "outputPath": "dist/angular-app",
+                  "index": "src/index.html",
+                  "browser": "src/main.ts",
+                  "polyfills": ["src/polyfills.ts"],
+                  "tsConfig": "tsconfig.app.json",
+                  "inlineStyleLanguage": "css",
+                  "assets": [
+                    "src/favicon.ico",
+                    "src/assets"
+                  ],
+                  "styles": [
+                    "src/styles.css"
+                  ],
+                  "scripts": []
+                },
+                "configurations": {
+                  "production": {
+                    "budgets": [
+                      {
+                        "type": "initial",
+                        "maximumWarning": "500kb",
+                        "maximumError": "1mb"
+                      },
+                      {
+                        "type": "anyComponentStyle",
+                        "maximumWarning": "2kb",
+                        "maximumError": "4kb"
+                      }
+                    ],
+                    "outputHashing": "all"
+                  },
+                  "development": {
+                    "optimization": false,
+                    "extractLicenses": false,
+                    "sourceMap": true
+                  }
+                },
+                "defaultConfiguration": "production"
+              },
+              "serve": {
+                "builder": "@angular-devkit/build-angular:dev-server",
+                "options": {
+                  "buildTarget": "angular-app:build:development"
+                },
+                "configurations": {
+                  "production": {
+                    "buildTarget": "angular-app:build:production"
+                  },
+                  "development": {
+                    "buildTarget": "angular-app:build:development"
+                  }
+                },
+                "defaultConfiguration": "development"
+              }
+            }
+          }
+        }
+      }, null, 2),
+      'tsconfig.json': JSON.stringify({
+        "compileOnSave": false,
+        "compilerOptions": {
+          "baseUrl": "./",
+          "outDir": "./dist/out-tsc",
+          "forceConsistentCasingInFileNames": true,
+          "strict": true,
+          "noImplicitOverride": true,
+          "noPropertyAccessFromIndexSignature": true,
+          "noImplicitReturns": true,
+          "noFallthroughCasesInSwitch": true,
+          "sourceMap": true,
+          "declaration": false,
+          "downlevelIteration": true,
+          "experimentalDecorators": true,
+          "moduleResolution": "node",
+          "importHelpers": true,
+          "target": "ES2022",
+          "module": "ES2022",
+          "useDefineForClassFields": false,
+          "lib": [
+            "ES2022",
+            "dom"
+          ]
+        },
+        "angularCompilerOptions": {
+          "enableI18nLegacyMessageIdFormat": false,
+          "strictInjectionParameters": true,
+          "strictInputAccessModifiers": true,
+          "strictTemplates": true
+        }
+      }, null, 2),
+      'tsconfig.app.json': JSON.stringify({
+        "extends": "./tsconfig.json",
+        "compilerOptions": {
+          "outDir": "./out-tsc/app",
+          "types": [],
+          "moduleResolution": "node"
+        },
+        "files": [
+          "src/main.ts",
+          "src/polyfills.ts"
+        ],
+        "include": [
+          "src/**/*.d.ts",
+          "src/**/*.ts"
+        ]
+      }, null, 2),
+      'package.json': JSON.stringify({
+        "name": "angular-app",
+        "version": "0.0.0",
+        "scripts": {
+          "ng": "ng",
+          "start": "ng serve",
+          "build": "ng build",
+          "watch": "ng build --watch --configuration development"
+        },
+        "private": true,
+        "dependencies": {
+          "@angular/animations": "~17.0.0",
+          "@angular/common": "~17.0.0",
+          "@angular/compiler": "~17.0.0",
+          "@angular/core": "~17.0.0",
+          "@angular/forms": "~17.0.0",
+          "@angular/platform-browser": "~17.0.0",
+          "@angular/platform-browser-dynamic": "~17.0.0",
+          "@angular/router": "~17.0.0",
+          "rxjs": "~7.8.0",
+          "tslib": "^2.3.0",
+          "zone.js": "~0.14.2"
+        },
+        "devDependencies": {
+          "@angular-devkit/build-angular": "~17.0.0",
+          "@angular/cli": "~17.0.0",
+          "@angular/compiler-cli": "~17.0.0",
+          "@types/jasmine": "~5.1.0",
+          "jasmine-core": "~5.1.0",
+          "karma": "~6.4.0",
+          "karma-chrome-launcher": "~3.2.0",
+          "karma-coverage": "~2.2.0",
+          "karma-jasmine": "~5.1.0",
+          "karma-jasmine-html-reporter": "~2.1.0",
+          "typescript": "~5.2.2"
+        }
+      }, null, 2),
+      'src/polyfills.ts': `/**
+ * This file includes polyfills needed by Angular and is loaded before the app.
+ * You can add your own extra polyfills to this file.
+ */
+
+import 'zone.js';  // Included with Angular CLI.`
+    };
+
+    return {
+      ...validatedCode.files,
+      ...configFiles
+    };
   } catch (error) {
     console.error("Angular code generation failed:", error);
     throw error;
+  }
+}
+
+// Add new function to process Figma data into design structure
+async function processFigmaData(figmaData) {
+  try {
+    // Extract design structure from Figma data
+    const designStructure = {
+      components: {},
+      services: {},
+      models: {},
+      routes: []
+    };
+
+    // Process Figma nodes to extract components
+    const processNode = (node) => {
+      if (node.type === 'COMPONENT' || node.type === 'INSTANCE') {
+        const componentName = node.name.replace(/[^a-zA-Z0-9]/g, '');
+        designStructure.components[componentName] = {
+          description: node.description || `Component from Figma: ${node.name}`,
+          properties: [],
+          childComponents: [],
+          styles: {
+            width: node.absoluteBoundingBox?.width,
+            height: node.absoluteBoundingBox?.height,
+            backgroundColor: node.backgroundColor,
+            borderRadius: node.cornerRadius,
+            padding: node.padding,
+            margin: node.margin,
+            // Add more style properties as needed
+          }
+        };
+
+        // Process child nodes
+        if (node.children) {
+          node.children.forEach(child => {
+            const childName = child.name.replace(/[^a-zA-Z0-9]/g, '');
+            designStructure.components[componentName].childComponents.push(childName);
+            processNode(child);
+          });
+        }
+      }
+    };
+
+    // Process all nodes in the Figma document
+    if (figmaData.document) {
+      processNode(figmaData.document);
+    }
+
+    // Add routes based on top-level components
+    Object.keys(designStructure.components).forEach(componentName => {
+      designStructure.routes.push({
+        path: componentName.toLowerCase(),
+        component: `${componentName}Component`
+      });
+    });
+
+    return designStructure;
+  } catch (error) {
+    console.error("Failed to process Figma data:", error);
+    throw new Error(`Failed to process Figma data: ${error.message}`);
   }
 }
 

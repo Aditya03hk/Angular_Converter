@@ -8,6 +8,8 @@ const fs = require("fs-extra");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const JSZip = require("jszip");
+const FigmaProcessor = require('./figma-processor');
+const apiService = require('./api-service');
 // Remove AWS SDK v2 import
 // const { WorkSpaces } = require("aws-sdk");
 
@@ -41,6 +43,9 @@ const CodeAnalyzer = require("./code-analyzer");
 
 const llmMemory = new LLMMemory();
 const codeAnalyzer = new CodeAnalyzer(llmMemory);
+
+// Initialize Figma processor with the processing queue
+const figmaProcessor = new FigmaProcessor(PROCESSING_QUEUE);
 
 // Middleware to log requests
 app.use((req, res, next) => {
@@ -93,34 +98,40 @@ function getJobStatus(jobId) {
   return PROCESSING_QUEUE.get(jobId);
 }
 
-// Route to handle Figma to Angular conversion
+const inputHandler = require('./input-handler');
+
+// Route to handle conversion requests
 app.post("/api/convert", async (req, res) => {
   try {
-    const { figmaKey } = req.body;
+    const { input } = req.body;
 
-    if (!figmaKey) {
-      return res.status(400).json({ error: "Figma file key is required" });
+    if (!input) {
+      return res.status(400).json({ error: "Input is required" });
     }
-    // Generate a unique job ID
-    const jobId = uuidv4();
-    // Create job entry in processing queue
-    PROCESSING_QUEUE.set(jobId, {
-      status: "queued",
-      progress: 0,
-      message: "Job queued",
-      created: new Date(),
-      figmaKey,
-    });
+
+    // Process the input and determine its type
+    const { jobId, jobData, inputType } = await inputHandler.processInput(input);
+
+    // Add job to processing queue
+    PROCESSING_QUEUE.set(jobId, jobData);
+
     // Return job ID immediately
     res.status(202).json({
       jobId,
       message: "Conversion process started",
       status: "queued",
+      inputType
     });
-    processFigmaToAngular(jobId, figmaKey);
+
+    // Process based on input type
+    if (inputType === 'figma') {
+      figmaProcessor.processFigmaToAngular(jobId, input);
+    } else if (inputType === 'text') {
+      processTextToAngular(jobId, input);
+    }
   } catch (error) {
     console.error("Conversion request error:", error);
-    res.status(500).json({ error: "Failed to start conversion process" });
+    res.status(500).json({ error: error.message || "Failed to start conversion process" });
   }
 });
 
@@ -667,793 +678,6 @@ app.get("/api/status/:jobId", (req, res) => {
   res.json(jobStatus);
 });
 
-// Main processing pipeline
-async function processFigmaToAngular(jobId, figmaKey) {
-  const jobData = PROCESSING_QUEUE.get(jobId);
-  const workDir = path.join(__dirname, "workspaces", jobId);
-  try {
-    // Create workspace directory first
-    await fs.ensureDir(workDir);
-    console.log(`Created workspace directory: ${workDir}`);
-
-    // Update job status
-    updateJobStatus(jobId, "processing", 10, "Fetching Figma design data");
-
-    // Agent 1: Fetch Figma JSON using API
-    const figmaData = await fetchFigmaData(figmaKey);
-    await fs.writeJson(path.join(workDir, "figma-data.json"), figmaData, {
-      spaces: 2,
-    });
-    updateJobStatus(
-      jobId,
-      "processing",
-      30,
-      "Generating Angular code from Figma data"
-    );
-
-    // Agent 2 & 3: Generate Angular code using Gemini API
-    let files = await generateAngularCode(figmaData);
-    
-    // Write all files with proper error handling
-    console.log(`Writing ${Object.keys(files).length} files to workspace...`);
-    for (const [filepath, content] of Object.entries(files)) {
-      try {
-        const fullPath = path.join(workDir, filepath);
-        const dirPath = path.dirname(fullPath);
-        
-        // Ensure the directory exists
-        await fs.ensureDir(dirPath);
-        
-        // Write the file
-        await fs.writeFile(fullPath, content);
-        console.log(`Successfully wrote file: ${filepath}`);
-        
-        // Verify the file was written
-        const fileExists = await fs.pathExists(fullPath);
-        if (!fileExists) {
-          throw new Error(`File ${filepath} was not written successfully`);
-        }
-      } catch (fileError) {
-        console.error(`Failed to write file ${filepath}:`, fileError);
-        throw new Error(`Failed to write file ${filepath}: ${fileError.message}`);
-      }
-    }
-
-    // Verify all required files exist before proceeding
-    const requiredFiles = [
-      'src/main.ts',
-      'src/index.html',
-      'src/styles.css',
-      'src/app/app.component.ts',
-      'src/app/app.component.html',
-      'src/app/app.component.css',
-      'src/app/app.routes.ts',
-      'tsconfig.json',
-      'angular.json',
-      'package.json'
-    ];
-
-    console.log('Verifying required files...');
-    for (const file of requiredFiles) {
-      const filePath = path.join(workDir, file);
-      const exists = await fs.pathExists(filePath);
-      if (!exists) {
-        throw new Error(`Required file ${file} is missing after file writing`);
-      }
-      console.log(`Verified required file exists: ${file}`);
-    }
-
-    updateJobStatus(jobId, "processing", 50, "Creating Angular project structure");
-    
-    // Create Angular project structure
-    await continueAngularConversion(jobId, workDir, files);
-
-    // Create downloadable ZIP of the project
-    const zipPath = await createProjectZip(workDir, jobId);
-    
-    // Update job as completed
-    updateJobStatus(
-      jobId,
-      "completed",
-      100,
-      "Project files generated successfully",
-      {
-        downloadUrl: `/api/download/${jobId}`,
-        projectPath: workDir
-      }
-    );
-
-    // Schedule cleanup
-    setTimeout(() => {
-      cleanupJob(jobId);
-    }, 2 * 60 * 60 * 1000);
-
-  } catch (error) {
-    console.error(`Error processing job ${jobId}:`, error);
-    updateJobStatus(jobId, "failed", 0, `Conversion failed: ${error.message}`);
-    try {
-      await fs.remove(workDir);
-    } catch (cleanupErr) {
-      console.error(
-        `Failed to clean up workspace for job ${jobId}:`,
-        cleanupErr
-      );
-    }
-  }
-}
-
-// Agent 1: Fetch Figma data
-async function fetchFigmaData(figmaKey) {
-  try {
-    const response = await fetch(`${FIGMA_API_BASE}/files/${figmaKey}`, {
-      headers: {
-        "X-Figma-Token": FIGMA_TOKEN,
-      },
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(
-        `Figma API error: ${errorData.status || response.status}`
-      );
-    }
-    return await response.json();
-  } catch (error) {
-    console.error("Failed to fetch Figma data:", error);
-    throw new Error(`Failed to fetch Figma data: ${error.message}`);
-  }
-}
-
-async function fixConfigurationFiles(files) {
-  // Fix tsconfig.app.json
-  files['tsconfig.app.json'] = JSON.stringify({
-    "extends": "./tsconfig.json",
-    "compilerOptions": {
-      "outDir": "./out-tsc/app",
-      "types": [],
-      "moduleResolution": "node"
-    },
-    "files": [
-      "src/main.ts",
-      "src/polyfills.ts"
-    ],
-    "include": [
-      "src/**/*.d.ts",
-      "src/**/*.ts"
-    ]
-  }, null, 2);
-
-  // Fix angular.json with correct configuration
-  files['angular.json'] = JSON.stringify({
-    "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
-    "version": 1,
-    "newProjectRoot": "projects",
-    "projects": {
-      "angular-app": {
-        "projectType": "application",
-        "schematics": {
-          "@schematics/angular:component": {
-            "style": "css",
-            "standalone": true
-          }
-        },
-        "root": "",
-        "sourceRoot": "src",
-        "prefix": "app",
-        "architect": {
-          "build": {
-            "builder": "@angular-devkit/build-angular:application",
-            "options": {
-              "outputPath": "dist/angular-app",
-              "index": "src/index.html",
-              "browser": "src/main.ts",
-              "polyfills": ["src/polyfills.ts"],
-              "tsConfig": "tsconfig.app.json",
-              "inlineStyleLanguage": "css",
-              "assets": [
-                "src/favicon.ico",
-                "src/assets"
-              ],
-              "styles": [
-                "src/styles.css"
-              ],
-              "scripts": []
-            },
-            "configurations": {
-              "production": {
-                "budgets": [
-                  {
-                    "type": "initial",
-                    "maximumWarning": "500kb",
-                    "maximumError": "1mb"
-                  },
-                  {
-                    "type": "anyComponentStyle",
-                    "maximumWarning": "2kb",
-                    "maximumError": "4kb"
-                  }
-                ],
-                "outputHashing": "all"
-              },
-              "development": {
-                "optimization": false,
-                "extractLicenses": false,
-                "sourceMap": true
-              }
-            },
-            "defaultConfiguration": "production"
-          },
-          "serve": {
-            "builder": "@angular-devkit/build-angular:dev-server",
-            "options": {
-              "buildTarget": "angular-app:build:development"
-            },
-            "configurations": {
-              "production": {
-                "buildTarget": "angular-app:build:production"
-              },
-              "development": {
-                "buildTarget": "angular-app:build:development"
-              }
-            },
-            "defaultConfiguration": "development"
-          },
-          "extract-i18n": {
-            "builder": "@angular-devkit/build-angular:extract-i18n",
-            "options": {
-              "buildTarget": "angular-app:build"
-            }
-          },
-          "test": {
-            "builder": "@angular-devkit/build-angular:karma",
-            "options": {
-              "polyfills": ["src/polyfills.ts"],
-              "tsConfig": "tsconfig.spec.json",
-              "inlineStyleLanguage": "css",
-              "assets": [
-                "src/favicon.ico",
-                "src/assets"
-              ],
-              "styles": [
-                "src/styles.css"
-              ],
-              "scripts": []
-            }
-          }
-        }
-      }
-    }
-  }, null, 2);
-
-  // Fix styles.css
-  files['src/styles.css'] = `/* You can add global styles to this file, and also import other style files */
-
-html, body { height: 100%; }
-body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }`;
-
-  // Fix polyfills.ts
-  files['src/polyfills.ts'] = `/**
- * This file includes polyfills needed by Angular and is loaded before the app.
- * You can add your own extra polyfills to this file.
- */
-
-import 'zone.js';  // Included with Angular CLI.`;
-
-  // Ensure environment files exist
-  if (!files['src/environments/environment.ts']) {
-    files['src/environments/environment.ts'] = `export const environment = {\n  production: false\n};\n`;
-  }
-  if (!files['src/environments/environment.prod.ts']) {
-    files['src/environments/environment.prod.ts'] = `export const environment = {\n  production: true\n};\n`;
-  }
-
-  // Fix app.config.ts to include all necessary providers
-  files['src/app/app.config.ts'] = `import { ApplicationConfig, importProvidersFrom } from '@angular/core';
-import { provideRouter } from '@angular/router';
-import { provideHttpClient } from '@angular/common/http';
-import { provideAnimations } from '@angular/platform-browser/animations';
-import { FormsModule } from '@angular/forms';
-import { routes } from './app.routes';
-
-export const appConfig: ApplicationConfig = {
-  providers: [
-    provideRouter(routes),
-    provideHttpClient(),
-    provideAnimations(),
-    importProvidersFrom(FormsModule)
-  ]
-};`;
-
-  // Fix app.component.ts to include all necessary imports
-  files['src/app/app.component.ts'] = `import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { RouterOutlet } from '@angular/router';
-
-@Component({
-  selector: 'app-root',
-  standalone: true,
-  imports: [CommonModule, RouterOutlet],
-  templateUrl: './app.component.html',
-  styleUrls: ['./app.component.css']
-})
-export class AppComponent {
-  title = 'angular-app';
-}`,
-
-  // Fix app.component.html
-  files['src/app/app.component.html'] = `<main>
-  <router-outlet></router-outlet>
-</main>`;
-
-  // Fix app.component.css
-  files['src/app/app.component.css'] = `main {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
-}`;
-
-  // Fix app.routes.ts to include all component routes
-  const routes = [];
-  const imports = [];
-  const componentMap = new Map();
-
-  // First pass: collect all components and their paths
-  for (const [filepath, content] of Object.entries(files)) {
-    if (filepath.endsWith('.component.ts')) {
-      const componentName = path.basename(filepath, '.component.ts');
-      const relativePath = path.dirname(filepath).replace('src/app/', '');
-      const importPath = relativePath ? `./${relativePath}/${componentName}.component` : `./${componentName}.component`;
-      componentMap.set(componentName, {
-        name: componentName,
-        path: importPath,
-        routePath: componentName.toLowerCase().replace('-page', '')
-      });
-    }
-  }
-
-  // Second pass: generate imports and routes
-  for (const [_, component] of componentMap) {
-    imports.push(`import { ${component.name} } from '${component.path}';`);
-    routes.push(`{ path: '${component.routePath}', component: ${component.name} }`);
-  }
-
-  // Generate app.routes.ts with proper imports and routes
-  files['src/app/app.routes.ts'] = `import { Routes } from '@angular/router';
-${imports.join('\n')}
-
-export const routes: Routes = [
-  ${routes.join(',\n  ')},
-  { path: '**', redirectTo: '' }
-];`;
-
-  // Fix all component files to include necessary imports
-  for (const [filepath, content] of Object.entries(files)) {
-    if (filepath.endsWith('.component.ts')) {
-      // Extract existing imports
-      const importLines = content.split('\n').filter(line => line.trim().startsWith('import '));
-      const existingImports = new Set(importLines.map(line => line.trim()));
-      
-      // Define required imports based on component content
-      const requiredImports = new Set([
-        'import { Component } from \'@angular/core\';',
-        'import { CommonModule } from \'@angular/common\';'
-      ]);
-      
-      // Add FormsModule if needed
-      if (content.includes('ngModel') || content.includes('formGroup')) {
-        requiredImports.add('import { FormsModule, ReactiveFormsModule } from \'@angular/forms\';');
-      }
-      
-      // Add RouterModule if needed
-      if (content.includes('routerLink') || content.includes('router-outlet')) {
-        requiredImports.add('import { RouterModule } from \'@angular/router\';');
-      }
-      
-      // Add HttpClientModule if needed
-      if (content.includes('HttpClient')) {
-        requiredImports.add('import { HttpClientModule } from \'@angular/common/http\';');
-      }
-
-      // Combine all imports, removing duplicates
-      const allImports = [...new Set([...requiredImports, ...existingImports])];
-      
-      // Extract the component decorator content
-      const decoratorMatch = content.match(/@Component\({[\s\S]*?}\)[\s\S]*?export/);
-      if (decoratorMatch) {
-        const decoratorContent = decoratorMatch[0];
-        
-        // Extract existing imports array
-        const importsMatch = decoratorContent.match(/imports:\s*\[([\s\S]*?)\]/);
-        if (importsMatch) {
-          const existingImportsArray = importsMatch[1].split(',').map(i => i.trim());
-          const requiredModules = new Set(['CommonModule']);
-          
-          // Add required modules based on imports
-          if (content.includes('ngModel') || content.includes('formGroup')) {
-            requiredModules.add('FormsModule');
-            requiredModules.add('ReactiveFormsModule');
-          }
-          if (content.includes('routerLink') || content.includes('router-outlet')) {
-            requiredModules.add('RouterModule');
-          }
-          if (content.includes('HttpClient')) {
-            requiredModules.add('HttpClientModule');
-          }
-          
-          // Combine all modules, removing duplicates
-          const allModules = [...new Set([...existingImportsArray, ...requiredModules])];
-          
-          // Update the imports array in the decorator
-          const updatedDecorator = decoratorContent.replace(
-            /imports:\s*\[([\s\S]*?)\]/,
-            `imports: [${allModules.join(', ')}]`
-          );
-          
-          // Update the component content
-          files[filepath] = content.replace(decoratorContent, updatedDecorator);
-        }
-      }
-      
-      // Add imports at the top of the file
-      const nonImportLines = content.split('\n').filter(line => !line.trim().startsWith('import '));
-      files[filepath] = [...allImports, '', ...nonImportLines].join('\n');
-    }
-  }
-
-  // Fix all service files to include necessary imports and decorators
-  for (const [filepath, content] of Object.entries(files)) {
-    if (filepath.endsWith('.service.ts')) {
-      if (!content.includes('@Injectable')) {
-        const serviceName = path.basename(filepath, '.service.ts');
-        const updatedContent = `import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
-
-@Injectable({
-  providedIn: 'root'
-})
-${content}`;
-        files[filepath] = updatedContent;
-      }
-    }
-  }
-
-  return files;
-}
-
-// Add this new function to fix common Angular issues
-async function fixAngularIssues(files) {
-  const fixedFiles = { ...files };
-
-  // Fix app.config.ts
-  if (fixedFiles['src/app/app.config.ts']) {
-    fixedFiles['src/app/app.config.ts'] = `import { ApplicationConfig, importProvidersFrom } from '@angular/core';
-import { provideRouter } from '@angular/router';
-import { provideHttpClient } from '@angular/common/http';
-import { provideAnimations } from '@angular/platform-browser/animations';
-import { FormsModule } from '@angular/forms';
-import { routes } from './app.routes';
-
-export const appConfig: ApplicationConfig = {
-  providers: [
-    provideRouter(routes),
-    provideHttpClient(),
-    provideAnimations(),
-    importProvidersFrom(FormsModule)
-  ]
-};`;
-  }
-
-  // Fix component files
-  for (const [filepath, content] of Object.entries(fixedFiles)) {
-    if (filepath.endsWith('.component.ts')) {
-      let fixedContent = content;
-
-      // Fix import paths
-      fixedContent = fixedContent
-        .replace(/from\s*['"]\.\.\/\.\.\/\.\.\/src\/app\//g, 'from \'../')
-        .replace(/from\s*['"]\.\.\/\.\.\/src\/app\//g, 'from \'../')
-        .replace(/from\s*['"]\.\/src\/app\//g, 'from \'./');
-
-      // Fix component names in imports
-      fixedContent = fixedContent.replace(/import\s*{\s*([^}]+)\s*}\s*from/g, (match, imports) => {
-        const fixedImports = imports.split(',').map(imp => {
-          const trimmed = imp.trim();
-          if (trimmed.includes('-')) {
-            return trimmed.split('-')
-              .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-              .join('') + 'Component';
-          }
-          return trimmed;
-        }).join(', ');
-        return `import { ${fixedImports} } from`;
-      });
-
-      // Ensure component is standalone
-      if (!fixedContent.includes('standalone: true')) {
-        fixedContent = fixedContent.replace(
-          /@Component\({/,
-          '@Component({\n  standalone: true,'
-        );
-      }
-
-      // Ensure CommonModule is imported
-      if (!fixedContent.includes('import { CommonModule }')) {
-        fixedContent = fixedContent.replace(
-          /import { Component } from '@angular\/core';/,
-          `import { Component } from '@angular/core';\nimport { CommonModule } from '@angular/common';`
-        );
-      }
-
-      // Ensure CommonModule is in imports array
-      if (!fixedContent.includes('imports: [CommonModule')) {
-        fixedContent = fixedContent.replace(
-          /imports:\s*\[/,
-          'imports: [CommonModule, '
-        );
-      }
-
-      // Fix FormsModule import
-      if (fixedContent.includes('provideFormsModule')) {
-        fixedContent = fixedContent
-          .replace(/provideFormsModule/g, 'FormsModule')
-          .replace(/import\s*{\s*provideFormsModule\s*}\s*from\s*['"]@angular\/forms['"]/g, 
-                   'import { FormsModule } from \'@angular/forms\';');
-      }
-
-      fixedFiles[filepath] = fixedContent;
-    }
-  }
-
-  // Fix route configurations
-  if (fixedFiles['src/app/app.routes.ts']) {
-    let routesContent = fixedFiles['src/app/app.routes.ts'];
-
-    // Fix component imports
-    routesContent = routesContent.replace(/import\s*{\s*([^}]+)\s*}\s*from/g, (match, imports) => {
-      const fixedImports = imports.split(',').map(imp => {
-        const trimmed = imp.trim();
-        if (trimmed.includes('-')) {
-          return trimmed.split('-')
-            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-            .join('') + 'Component';
-        }
-        return trimmed;
-      }).join(', ');
-      return `import { ${fixedImports} } from`;
-    });
-
-    // Fix component references in routes
-    routesContent = routesContent.replace(
-      /component:\s*([a-z-]+)/g,
-      (match, component) => {
-        const pascalCase = component.split('-')
-          .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-          .join('') + 'Component';
-        return `component: ${pascalCase}`;
-      }
-    );
-
-    fixedFiles['src/app/app.routes.ts'] = routesContent;
-  }
-
-  return fixedFiles;
-}
-
-// Add these utility functions for path handling
-function validateAndCorrectPaths(files) {
-  const pathMap = new Map();
-  const correctedFiles = { ...files };
-
-  // First pass: collect all component paths
-  Object.keys(files).forEach(filepath => {
-    if (filepath.endsWith('.component.ts')) {
-      const componentName = path.basename(filepath, '.component.ts');
-      const relativePath = path.dirname(filepath).replace('src/app/', '');
-      pathMap.set(componentName, {
-        name: componentName,
-        path: relativePath,
-        fullPath: filepath
-      });
-    }
-  });
-
-  // Second pass: correct import paths
-  Object.entries(files).forEach(([filepath, content]) => {
-    if (filepath.endsWith('.ts')) {
-      let correctedContent = content;
-
-      // Fix component imports
-      correctedContent = correctedContent.replace(
-        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]([^'"]+)['"]/g,
-        (match, imports, importPath) => {
-          const importedComponents = imports.split(',').map(imp => imp.trim());
-          const correctedImports = importedComponents.map(imp => {
-            const componentName = imp.replace('Component', '');
-            const componentInfo = pathMap.get(componentName);
-            
-            if (componentInfo) {
-              // Calculate correct relative path
-              const currentDir = path.dirname(filepath);
-              const targetDir = path.dirname(componentInfo.fullPath);
-              const relativePath = path.relative(currentDir, targetDir)
-                .replace(/\\/g, '/') // Convert Windows paths to forward slashes
-                .replace(/^\.\.\//, './') // Fix leading relative paths
-                .replace(/^\.\//, './'); // Ensure proper relative path format
-              
-              return `${imp} from '${relativePath}/${componentName}.component'`;
-            }
-            return imp;
-          });
-          
-          return `import { ${correctedImports.join(', ')} }`;
-        }
-      );
-
-      // Fix model imports
-      correctedContent = correctedContent.replace(
-        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]([^'"]+)['"]/g,
-        (match, imports, importPath) => {
-          if (importPath.includes('models')) {
-            const currentDir = path.dirname(filepath);
-            const modelPath = path.join('src/app/models', path.basename(importPath));
-            const relativePath = path.relative(currentDir, modelPath)
-              .replace(/\\/g, '/')
-              .replace(/^\.\.\//, './')
-              .replace(/^\.\//, './');
-            
-            return `import { ${imports} } from '${relativePath}'`;
-          }
-          return match;
-        }
-      );
-
-      // Fix service imports
-      correctedContent = correctedContent.replace(
-        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]([^'"]+)['"]/g,
-        (match, imports, importPath) => {
-          if (importPath.includes('services')) {
-            const currentDir = path.dirname(filepath);
-            const servicePath = path.join('src/app/services', path.basename(importPath));
-            const relativePath = path.relative(currentDir, servicePath)
-              .replace(/\\/g, '/')
-              .replace(/^\.\.\//, './')
-              .replace(/^\.\//, './');
-            
-            return `import { ${imports} } from '${relativePath}'`;
-          }
-          return match;
-        }
-      );
-
-      // Fix Angular core imports
-      correctedContent = correctedContent.replace(
-        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]@angular\/([^'"]+)['"]/g,
-        (match, imports, module) => {
-          return `import { ${imports} } from '@angular/${module}'`;
-        }
-      );
-
-      correctedFiles[filepath] = correctedContent;
-    }
-  });
-
-  return correctedFiles;
-}
-
-// Add this function to validate component structure
-function validateComponentStructure(files) {
-  const errors = [];
-  const components = new Map();
-
-  // Collect all components
-  Object.keys(files).forEach(filepath => {
-    if (filepath.endsWith('.component.ts')) {
-      const componentName = path.basename(filepath, '.component.ts');
-      const dir = path.dirname(filepath);
-      components.set(componentName, {
-        name: componentName,
-        dir,
-        files: {
-          ts: filepath,
-          html: path.join(dir, `${componentName}.component.html`),
-          css: path.join(dir, `${componentName}.component.css`)
-        }
-      });
-    }
-  });
-
-  // Validate each component
-  components.forEach(component => {
-    // Check if all required files exist
-    if (!files[component.files.html]) {
-      errors.push(`Missing HTML file for component ${component.name}`);
-    }
-    if (!files[component.files.css]) {
-      errors.push(`Missing CSS file for component ${component.name}`);
-    }
-
-    // Validate component class
-    const content = files[component.files.ts];
-    if (!content.includes(`export class ${component.name}Component`)) {
-      errors.push(`Invalid component class name for ${component.name}`);
-    }
-
-    // Validate imports
-    if (!content.includes('@angular/core')) {
-      errors.push(`Missing @angular/core import in ${component.name}`);
-    }
-    if (!content.includes('CommonModule')) {
-      errors.push(`Missing CommonModule import in ${component.name}`);
-    }
-
-    // Validate component decorator
-    if (!content.includes('@Component')) {
-      errors.push(`Missing @Component decorator in ${component.name}`);
-    }
-    if (!content.includes('standalone: true')) {
-      errors.push(`Component ${component.name} must be standalone`);
-    }
-  });
-
-  return errors;
-}
-
-// Function to extract JSON from text
-const extractJson = (text) => {
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[0]);
-      } catch (e2) {
-        throw new Error('Could not extract valid JSON from response');
-      }
-    }
-    throw new Error('No JSON found in response');
-  }
-};
-
-// Function to make API call with retries
-const makeApiCall = async (prompt, maxRetries = 3) => {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(prompt)
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`API call failed: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      const generatedText = result.candidates[0].content.parts[0].text;
-      
-      // Clean the response text
-      const cleanedText = generatedText
-        .replace(/```json\n?|\n?```/g, '')
-        .replace(/```typescript\n?|\n?```/g, '')
-        .replace(/```javascript\n?|\n?```/g, '')
-        .replace(/```\n?|\n?```/g, '')
-        .trim();
-
-      // Try to extract and parse JSON
-      return extractJson(cleanedText);
-    } catch (error) {
-      console.error(`Attempt ${i + 1} failed:`, error);
-      if (i === maxRetries - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-    }
-  }
-};
-
 async function generateAngularCode(inputData) {
   try {
     const isFigmaData = inputData.document !== undefined;
@@ -1611,7 +835,7 @@ IMPORTANT: Generate ALL required files for EACH component in the design. Do not 
     };
 
     // Generate initial code
-    const generatedCode = await makeApiCall(componentPrompt);
+    const generatedCode = await apiService.makeApiCall(componentPrompt);
     
     // Validate the generated code
     const validationPrompt = {
@@ -1686,7 +910,7 @@ IMPORTANT: Return ONLY a valid JSON object with the component files, no addition
     };
 
     // Get validated code
-    const validatedCode = await makeApiCall(validationPrompt);
+    const validatedCode = await apiService.makeApiCall(validationPrompt);
 
     // Add required Angular configuration files
     const configFiles = {
@@ -2146,6 +1370,128 @@ async function validateProjectStructure(workDir) {
   }
 
   console.log('Project structure validation completed successfully');
+}
+
+// Add Angular-specific fixes
+async function fixAngularIssues(files) {
+  try {
+    console.log('Fixing Angular-specific issues...');
+    
+    // Fix 1: Ensure all components have proper imports
+    for (const [filepath, content] of Object.entries(files)) {
+      if (filepath.endsWith('.component.ts')) {
+        // Add missing imports if needed
+        let updatedContent = content;
+        if (!content.includes('import { CommonModule }')) {
+          updatedContent = `import { CommonModule } from '@angular/common';\n${content}`;
+        }
+        if (!content.includes('import { FormsModule }') && content.includes('ngModel')) {
+          updatedContent = `import { FormsModule } from '@angular/forms';\n${updatedContent}`;
+        }
+        if (!content.includes('import { RouterModule }') && content.includes('routerLink')) {
+          updatedContent = `import { RouterModule } from '@angular/router';\n${updatedContent}`;
+        }
+        files[filepath] = updatedContent;
+      }
+    }
+
+    // Fix 2: Ensure proper component decorators
+    for (const [filepath, content] of Object.entries(files)) {
+      if (filepath.endsWith('.component.ts')) {
+        let updatedContent = content;
+        if (!content.includes('standalone: true')) {
+          updatedContent = content.replace(
+            /@Component\({/,
+            '@Component({\n  standalone: true,'
+          );
+        }
+        files[filepath] = updatedContent;
+      }
+    }
+
+    // Fix 3: Ensure proper module imports in component decorators
+    for (const [filepath, content] of Object.entries(files)) {
+      if (filepath.endsWith('.component.ts')) {
+        let updatedContent = content;
+        const imports = [];
+        
+        if (content.includes('CommonModule')) imports.push('CommonModule');
+        if (content.includes('FormsModule')) imports.push('FormsModule');
+        if (content.includes('RouterModule')) imports.push('RouterModule');
+        
+        if (imports.length > 0) {
+          const importsString = imports.join(', ');
+          if (!content.includes(`imports: [${importsString}]`)) {
+            updatedContent = content.replace(
+              /@Component\({[\s\S]*?}\)[\s\S]*?export class/,
+              `@Component({\n  selector: 'app-${filepath.split('/').pop().replace('.component.ts', '')}',\n  templateUrl: './${filepath.split('/').pop().replace('.ts', '.html')}',\n  styleUrls: ['./${filepath.split('/').pop().replace('.ts', '.css')}'],\n  standalone: true,\n  imports: [${importsString}]\n})\nexport class`
+            );
+          }
+        }
+        files[filepath] = updatedContent;
+      }
+    }
+
+    // Fix 4: Ensure proper HTML template references
+    for (const [filepath, content] of Object.entries(files)) {
+      if (filepath.endsWith('.component.ts')) {
+        const componentName = filepath.split('/').pop().replace('.component.ts', '');
+        let updatedContent = content;
+        
+        // Fix templateUrl if needed
+        if (!content.includes(`templateUrl: './${componentName}.component.html'`)) {
+          updatedContent = updatedContent.replace(
+            /templateUrl: '[^']*'/,
+            `templateUrl: './${componentName}.component.html'`
+          );
+        }
+        
+        // Fix styleUrls if needed
+        if (!content.includes(`styleUrls: ['./${componentName}.component.css']`)) {
+          updatedContent = updatedContent.replace(
+            /styleUrls: \[[^\]]*\]/,
+            `styleUrls: ['./${componentName}.component.css']`
+          );
+        }
+        
+        files[filepath] = updatedContent;
+      }
+    }
+
+    // Fix 5: Ensure proper routing configuration
+    if (files['src/app/app.routes.ts']) {
+      let routesContent = files['src/app/app.routes.ts'];
+      
+      // Add missing imports
+      const componentImports = new Set();
+      const routes = routesContent.match(/{[^}]*}/g) || [];
+      routes.forEach(route => {
+        const componentMatch = route.match(/component:\s*(\w+)/);
+        if (componentMatch) {
+          const componentName = componentMatch[1];
+          componentImports.add(componentName);
+        }
+      });
+
+      let importStatements = '';
+      componentImports.forEach(component => {
+        const componentPath = `./components/${component.toLowerCase()}/${component.toLowerCase()}.component`;
+        importStatements += `import { ${component} } from '${componentPath}';\n`;
+      });
+
+      if (importStatements) {
+        routesContent = importStatements + routesContent;
+      }
+
+      files['src/app/app.routes.ts'] = routesContent;
+    }
+
+    console.log('Angular-specific issues fixed successfully');
+    return files;
+  } catch (error) {
+    console.error('Error fixing Angular issues:', error);
+    throw error;
+  }
 }
 
 async function buildAndServeAngular(jobId, workDir) {

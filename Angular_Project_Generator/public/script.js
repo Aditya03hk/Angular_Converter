@@ -21,67 +21,68 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
-// Figma conversion
-async function convertFromFigma() {
-  const figmaKey = document.getElementById("figma-key").value.trim();
+// Handle form submission for both text and Figma inputs
+async function handleConversion() {
+    const activeTab = document.querySelector('.tab.active').dataset.tab;
+    let input;
 
-  if (!figmaKey) {
-    showStatus("Please enter a Figma file key", "error");
-    return;
-  }
-
-  try {
-    const response = await fetch(`${API_BASE}/api/convert`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ figmaKey }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      jobId = data.jobId;
-      showStatus("Conversion started...", "processing");
-      startPolling();
-    } else {
-      showStatus(data.error || "Failed to start conversion", "error");
+    if (activeTab === 'figma') {
+        input = document.getElementById("figma-key").value.trim();
+    } else if (activeTab === 'text') {
+        input = document.getElementById("design-description").value.trim();
     }
-  } catch (error) {
-    showStatus("Error: Unable to connect to server", "error");
-  }
+
+    if (!input) {
+        showStatus(`Please enter ${activeTab === 'figma' ? 'a Figma file key' : 'a design description'}`, "error");
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/api/convert`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            jobId = data.jobId;
+            showStatus("Conversion started...", "processing");
+            startPolling();
+        } else {
+            showStatus(data.error || "Failed to start conversion", "error");
+        }
+    } catch (error) {
+        showStatus("Error: Unable to connect to server", "error");
+    }
 }
 
-// Text conversion
-async function convertFromText() {
-  const description = document
-    .getElementById("design-description")
-    .value.trim();
-
-  if (!description) {
-    showStatus("Please enter a design description", "error");
-    return;
-  }
-
-  try {
-    const response = await fetch(`${API_BASE}/api/text-to-angular`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description }),
+// Update event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    // Tab switching
+    const tabs = document.querySelectorAll('.tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => content.style.display = 'none');
+            
+            const activeContent = document.getElementById(`${tab.dataset.tab}-input`);
+            if (activeContent) {
+                activeContent.style.display = 'block';
+            }
+        });
     });
 
-    const data = await response.json();
-
-    if (response.ok) {
-      jobId = data.jobId;
-      showStatus("Design generation started...", "processing");
-      startPolling();
-    } else {
-      showStatus(data.error || "Failed to start conversion", "error");
-    }
-  } catch (error) {
-    showStatus("Error: Unable to connect to server", "error");
-  }
-}
+    // Form submission
+    const submitButtons = document.querySelectorAll('.submit-button');
+    submitButtons.forEach(button => {
+        button.addEventListener('click', handleConversion);
+    });
+});
 
 // Voice recording and conversion
 async function startRecording() {

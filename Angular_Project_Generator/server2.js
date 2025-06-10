@@ -1754,7 +1754,7 @@ ${Object.keys(validatedCode.files)
   .filter(file => file.endsWith('.component.ts'))
   .map(file => {
     const componentName = file.split('/').pop().replace('.component.ts', '');
-    return `import { ${componentName} } from './components/${componentName}/${componentName}.component';`;
+    return `import { ${componentName}Component } from './components/${componentName}/${componentName}.component';`;
   })
   .join('\n')}
 
@@ -1763,7 +1763,7 @@ export const routes: Routes = [
     .filter(file => file.endsWith('.component.ts'))
     .map(file => {
       const componentName = file.split('/').pop().replace('.component.ts', '');
-      return `{ path: '${componentName.toLowerCase()}', component: ${componentName} }`;
+      return `{ path: '${componentName.toLowerCase()}', component: ${componentName}Component }`;
     })
     .join(',\n  ')},
   { path: '**', redirectTo: '' }

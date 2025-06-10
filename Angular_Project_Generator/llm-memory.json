@@ -4,17 +4,17 @@
       "pattern": "/@Component\\(\\{\\s*[^}]*standalone:\\s*true/",
       "description": "Properly configured standalone component",
       "example": "@Component({ selector: 'app-root', standalone: true, imports: [CommonModule] })",
-      "count": 83,
+      "count": 68,
       "added": "2025-04-18T03:41:39.059Z",
-      "lastSeen": "2025-06-01T08:40:26.865Z"
+      "lastSeen": "2025-05-14T09:13:41.840Z"
     },
     {
       "pattern": "/bootstrapApplication\\(\\s*AppComponent\\s*,/",
       "description": "Proper bootstrapping of standalone Angular component",
       "example": "bootstrapApplication(AppComponent, { providers: [] })",
-      "count": 85,
+      "count": 68,
       "added": "2025-04-18T03:41:39.063Z",
-      "lastSeen": "2025-06-01T08:40:26.867Z"
+      "lastSeen": "2025-05-14T09:13:41.841Z"
     },
     {
       "pattern": "/\\(click\\)\\s*=\\s*\"[^\"]+\\(\\)\"/",
@@ -54,17 +54,9 @@
       "pattern": "build-failure",
       "description": "Angular build error: Command failed with exit code 1\nstderr: - Generating browser application bundles (phase: setup)...\n✔ Browser application bundle generation complete.\n✔ Browser application bundle generation complete.\n\n",
       "correction": "Define properties before using them or check property names for typos",
-      "count": 7,
+      "count": 6,
       "added": "2025-04-20T09:27:56.843Z",
-      "lastSeen": "2025-06-02T04:43:26.449Z"
-    },
-    {
-      "pattern": "/@Component\\s*\\(\\s*{[^}]*}\\s*\\)/",
-      "description": "Missing styleUrls in @Component decorator",
-      "correction": "Add styleUrls: ['./app.component.css'] to the @Component decorator",
-      "count": 2,
-      "added": "2025-06-01T07:10:01.441Z",
-      "lastSeen": "2025-06-01T07:11:48.014Z"
+      "lastSeen": "2025-05-13T04:25:27.576Z"
     }
   ],
   "rules": [
